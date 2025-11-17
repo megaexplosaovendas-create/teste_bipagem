@@ -2,27 +2,25 @@
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8">
-  <title>Controle de Estoque c/ Bipagem + Câmera (OCR)</title>
+  <title>Controle de Bipagem - QR + OCR (SKU / Quantidade / Rastreio)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <!-- Tesseract para OCR -->
-  <script src="https://unpkg.com/tesseract.js@5/dist/tesseract.min.js"></script>
   <style>
     body {
       font-family: Arial, sans-serif;
       margin: 10px;
-      background: #f5f5f5;
+      background: #f7f7f7;
     }
     .container {
       max-width: 1200px;
       margin: 0 auto;
       background: #fff;
-      padding: 12px;
+      padding: 10px;
       border-radius: 8px;
-      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      box-shadow: 0 2px 4px rgba(0,0,0,0.08);
     }
     h1, h2 {
       font-size: 20px;
-      margin: 8px 0;
+      margin: 10px 0;
     }
     p {
       margin: 6px 0;
@@ -39,19 +37,16 @@
     }
     button {
       cursor: pointer;
-      border-radius: 4px;
-      border: 1px solid #ccc;
-      background: #f0f0f0;
-    }
-    button.primario {
-      background: #007bff;
+      border-radius: 6px;
+      border: none;
+      background: #1976d2;
       color: #fff;
-      border-color: #007bff;
     }
-    button.perigo {
-      background: #ff4d4f;
-      color: #fff;
-      border-color: #ff4d4f;
+    button.secondary {
+      background: #555;
+    }
+    button:disabled {
+      background: #aaa;
     }
     table {
       width: 100%;
@@ -60,12 +55,12 @@
       font-size: 13px;
     }
     th, td {
-      border: 1px solid #ddd;
+      border: 1px solid #ccc;
       padding: 4px;
       text-align: left;
     }
     th {
-      background: #fafafa;
+      background: #f0f0f0;
       position: sticky;
       top: 0;
       z-index: 1;
@@ -77,283 +72,390 @@
     .row-actions button {
       font-size: 12px;
       padding: 3px 6px;
+      background: #c62828;
     }
-    @media (min-width: 600px) {
-      .form-grid {
-        display: grid;
-        grid-template-columns: 2fr 2fr 1fr auto;
-        gap: 6px;
-        align-items: center;
-      }
+    .row-actions button.editar {
+      background: #f9a825;
+      margin-right: 4px;
     }
     .toolbar {
       display: flex;
       flex-wrap: wrap;
       gap: 6px;
       align-items: center;
-      margin-bottom: 6px;
+      margin: 6px 0;
     }
-
-    /* Cores de status */
-    .ok {
-      background: #e0ffe0;
-    }
-    .pendente {
-      background: #fffbe0;
-    }
-    .alerta {
-      background: #ffe0e0;
-    }
+    .ok    { background: #e0ffe0; }
+    .pendente { background: #fffbe0; }
+    .alerta   { background: #ffe0e0; }
     .badge {
       display: inline-block;
       padding: 2px 6px;
       border-radius: 4px;
       font-size: 11px;
     }
-    .badge-ok {
-      background: #c6f6c6;
-    }
-    .badge-pendente {
-      background: #fff2b3;
-    }
-    .badge-alerta {
-      background: #ffc4c4;
+    .badge-ok { background: #c6f6c6; }
+    .badge-pendente { background: #fff2b3; }
+    .badge-alerta { background: #ffc4c4; }
+
+    #reader {
+      width: 260px;
+      max-width: 100%;
+      margin-top: 8px;
     }
 
-    /* Câmera / preview */
-    #cameraArea {
+    #ocrPreview {
+      max-width: 100%;
+      max-height: 250px;
       margin-top: 8px;
-      display: none;
-      border: 1px solid #ddd;
-      border-radius: 6px;
-      padding: 6px;
-      background: #fafafa;
-    }
-    #videoPreview {
-      width: 100%;
-      max-height: 260px;
-      background: #000;
+      border: 1px solid #ccc;
       border-radius: 4px;
     }
-    #ocrStatus {
-      font-size: 12px;
-      margin-top: 4px;
-    }
-    #ocrUltimoTexto {
+
+    .chip {
+      display: inline-block;
+      padding: 2px 6px;
+      border-radius: 999px;
+      border: 1px solid #ccc;
+      margin: 2px;
       font-size: 11px;
-      white-space: pre-wrap;
-      margin-top: 4px;
-      max-height: 80px;
-      overflow-y: auto;
-      background: #fff;
-      border: 1px dashed #ddd;
-      padding: 4px;
+      background: #fafafa;
     }
   </style>
 </head>
 <body>
 <div class="container">
-  <h1>Estoque + Bipagem c/ Câmera (OCR)</h1>
+  <h1>Controle de Bipagem - Etiqueta Completa (Texto + QR)</h1>
 
   <p class="small">
-    • Itens vêm “embutidos” no HTML (lista de SKUs).<br>
-    • Você bipar por teclado/leitor ou ler o texto da etiqueta pela câmera (OCR).<br>
-    • A partir da linha da etiqueta no formato <code>1. SKU COMPLETO *QTD</code>, o sistema pega o SKU e a quantidade.
+    Fluxo pensado pra suas etiquetas Shopee:<br>
+    • <b>Leitor OCR da etiqueta inteira</b> → separa linhas tipo <code>1. CS-30 *1</code> e joga no estoque.<br>
+    • <b>Leitor de QR code</b> → pega código de rastreio (ex: <code>BR2540...</code>).<br>
+    • Estoque inicial vem da planilha <b>Planilha SKU.xlsx</b> (lista de SKUs já embutida no código).
   </p>
 
-  <h2>1) Adicionar / atualizar / excluir SKU manualmente</h2>
-  <div class="form-grid">
-    <div>
+  <!-- RESUMO -->
+  <div id="resumo"></div>
+
+  <!-- ÁREA DE CONTROLE DE ESTOQUE MANUAL -->
+  <h2>1) Adicionar / atualizar / excluir itens manualmente</h2>
+  <p class="small">
+    Aqui você pode incluir SKUs novos, ajustar quantidade esperada, ou remover linhas.
+  </p>
+  <div class="toolbar">
+    <div style="flex:1; min-width:150px;">
       <label>SKU (planilha)</label><br>
-      <input type="text" id="novoSku" placeholder="Ex: CS-30, D-Y03CINZA (CINZA)...">
+      <input type="text" id="novoSku" placeholder="Ex: D-Y03, KP-RO833, ON-FN632...">
     </div>
-    <div>
-      <label>Cor (opcional)</label><br>
-      <input type="text" id="novaCor" placeholder="Ex: PRETO, AZUL, (Vermelho)...">
+    <div style="flex:1; min-width:100px;">
+      <label>Cor (planilha)</label><br>
+      <input type="text" id="novaCor" placeholder="Ex: PRETO, AZUL, ROSA...">
     </div>
-    <div>
-      <label>Quantidade inicial</label><br>
+    <div style="width:120px;">
+      <label>Quantidade</label><br>
       <input type="number" id="novaQtd" value="300" min="0">
     </div>
     <div>
-      <button id="btnAdicionar" class="primario">Adicionar / Atualizar</button><br>
-      <button id="btnExcluirSku" class="perigo">Excluir SKU</button>
+      <button id="btnAdicionar">Adicionar / Atualizar</button>
     </div>
   </div>
-  <p class="small">
-    • “Adicionar / Atualizar”: se o SKU+Cor já existir, só muda a quantidade esperada.<br>
-    • “Excluir SKU”: remove totalmente o SKU+Cor da tabela (estoque + bipado).
-  </p>
 
-  <div id="resumo"></div>
-
-  <h2>2) Itens carregados</h2>
-  <div style="max-height: 320px; overflow: auto;">
+  <!-- TABELA DE ITENS -->
+  <h2>2) Itens em estoque (variações SKU + cor)</h2>
+  <div style="max-height: 330px; overflow:auto;">
     <table id="tabelaItens">
       <thead>
-        <tr>
-          <th>#</th>
-          <th>SKU</th>
-          <th>Cor</th>
-          <th>Qtd esperada</th>
-          <th>Bipado</th>
-          <th>Status</th>
-          <th>Ações</th>
-        </tr>
+      <tr>
+        <th>#</th>
+        <th>SKU (planilha)</th>
+        <th>Cor</th>
+        <th>SKU p/ bipagem (padrão PDF)</th>
+        <th>Qtd esperada</th>
+        <th>Bipado</th>
+        <th>Status</th>
+        <th>Ações</th>
+      </tr>
       </thead>
       <tbody id="tbodyItens"></tbody>
     </table>
   </div>
 
-  <h2>3) Bipagem</h2>
+  <!-- LEITOR POR CÓDIGO DE BARRAS / QR (html5-qrcode) -->
+  <h2>3) Leitura por QR code (rastreio)</h2>
   <p class="small">
-    • <b>Leitor / teclado:</b> digite ou bipar o SKU (exatamente como está na coluna “SKU”).<br>
-    • <b>Câmera (OCR):</b> aponta para a linha da etiqueta que tenha algo como <code>1. CS-30 *1</code> ou <code>1. D-Y03CINZA (CINZA) *3</code>.<br>
-    Ele extrai o SKU e a quantidade após o <code>*</code> e lança no estoque.
+    Esse modo lê apenas o <b>QR code</b> da etiqueta para obter o código de rastreio (ex: <code>BR25...</code>).
+  </p>
+  <div class="toolbar">
+    <button id="btnCameraQR">Abrir câmera (QR)</button>
+    <button id="btnFecharQR" class="secondary" disabled>Fechar câmera QR</button>
+  </div>
+  <div id="reader"></div>
+  <div id="infoQr" class="small"></div>
+  <div id="listaRastreios" class="small"></div>
+
+  <!-- LEITOR DE TEXTO (OCR) PARA ETIQUETA INTEIRA -->
+  <h2>4) Ler etiqueta inteira (OCR texto) → SKU + quantidade</h2>
+  <p class="small">
+    Esse modo tira uma foto da etiqueta, faz OCR e procura linhas no padrão
+    <code>1. ALGUM-SKU (COR) *QTD</code>.<br>
+    Ele vai extrair o <b>SKU completo</b> e a <b>quantidade</b>, depois descontar do estoque (bipado).
   </p>
 
   <div class="toolbar">
-    <button id="btnIniciarBipagem" class="primario">Focar campo de bipagem (teclado)</button>
-    <button id="btnCamera" class="primario">Ler com câmera (OCR)</button>
-    <button id="btnFecharCamera">Fechar câmera</button>
+    <button id="btnCameraOCR">Tirar foto da etiqueta (abrir câmera)</button>
+    <input type="file" id="inputOCR" accept="image/*" capture="environment" style="display:none;">
   </div>
+  <img id="ocrPreview" alt="" style="display:none;">
+  <div id="infoOcr" class="small"></div>
 
-  <input id="campoBipagem" placeholder="Bipe ou digite o SKU aqui (Enter)" />
-
+  <!-- LEITOR POR TEXTO (campo manual) -->
+  <h2>5) Bipagem direta (campo texto / leitor via teclado)</h2>
+  <p class="small">
+    Se o leitor de código de barras funcionar como teclado, você pode deixar esse campo focado e apenas bipar.<br>
+    Você também pode digitar algo no formato da etiqueta, como:
+    <code>1. TE-124 (Iluminação RGB Gamer) *3</code>.
+  </p>
+  <div class="toolbar">
+    <input id="campoBipagem" placeholder="Bipe ou cole linha aqui e pressione Enter">
+  </div>
   <div id="infoBipagem" class="small"></div>
 
-  <div id="cameraArea">
-    <video id="videoPreview" autoplay playsinline></video>
-    <div id="ocrStatus" class="small">Câmera iniciada. Mire na linha com “1. SKU *QTD”.</div>
-    <div class="small"><b>Último texto detectado (OCR):</b></div>
-    <div id="ocrUltimoTexto"></div>
-  </div>
+  <!-- SOM DE BIP -->
+  <audio id="beepAudio">
+    <!-- Beep simples gerado via Web Audio (fallback se não tocar nada) -->
+  </audio>
 </div>
 
-<script>
-  // =========================
-  // 0) Dados base (SUBSTITUIR PELO ARRAY COMPLETO DA SUA PLANILHA)
-  // =========================
-  // Aqui vão alguns exemplos de SKU. Troque esse array por aquele "itensBasePlanilha"
-  // gigante que você já tinha, adaptando para { sku, cor, qty }.
-  const itensBasePlanilha = [
-    { sku: "CS-30", cor: "", qty: 300 },
-    { sku: "D-3204+MIC", cor: "", qty: 300 },
-    { sku: "D-3205", cor: "", qty: 300 },
-    { sku: "D-3210 (SEM MICROFONE)", cor: "", qty: 300 },
-    { sku: "D-4232", cor: "", qty: 300 },
-    { sku: "D-G555", cor: "", qty: 300 },
-    { sku: "D-S3158 (Preto)", cor: "", qty: 300 },
-    { sku: "D-S3158 (Vermelho)", cor: "", qty: 300 },
-    { sku: "D-Y03CINZA (CINZA)", cor: "", qty: 300 },
-    { sku: "D-Y03LARANJA (LARANJA)", cor: "", qty: 300 },
-    { sku: "D-Y04", cor: "", qty: 300 },
-    { sku: "D-Y05", cor: "", qty: 300 },
-    { sku: "KP-RO826 (Azul)", cor: "", qty: 300 },
-    { sku: "KP-7023BRANCO (BRANCO)", cor: "", qty: 300 },
-    { sku: "TE-115 (Tecnologia Anti-Ghost)", cor: "", qty: 300 },
-    { sku: "TE115+FONE LEBOSS", cor: "", qty: 300 },
-    { sku: "TE-124 (Iluminação RGB Gamer)", cor: "", qty: 300 },
-    { sku: "XKO01PRETO (Preto)", cor: "", qty: 300 }
-    // ... aqui você cola TODOS os SKUs completos que quiser controlar
-  ];
+<!-- SCRIPTS EXTERNOS -->
+<script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+<script src="https://unpkg.com/tesseract.js@5/dist/tesseract.min.js"></script>
 
-  // =========================
-  // 1) Estrutura interna
-  // =========================
+<script>
+  // ==========================================
+  // 0) ESTRUTURA BÁSICA DE DADOS
+  // ==========================================
   let itens = []; // {id, sku, cor, qty, bipado}
   let proximoId = 1;
+  let rastreios = []; // lista de códigos lidos no QR
 
-  const tbodyItens = document.getElementById('tbodyItens');
-  const resumoDiv = document.getElementById('resumo');
+  const tbodyItens   = document.getElementById('tbodyItens');
+  const resumoDiv    = document.getElementById('resumo');
   const campoBipagem = document.getElementById('campoBipagem');
-  const infoBipagem = document.getElementById('infoBipagem');
+  const infoBipagem  = document.getElementById('infoBipagem');
+  const infoQr       = document.getElementById('infoQr');
+  const listaRastreiosDiv = document.getElementById('listaRastreios');
+  const infoOcr      = document.getElementById('infoOcr');
+  const beepAudio    = document.getElementById('beepAudio');
 
-  const btnAdicionar = document.getElementById('btnAdicionar');
-  const btnExcluirSku = document.getElementById('btnExcluirSku');
-  const btnIniciarBipagem = document.getElementById('btnIniciarBipagem');
+  // ==========================================
+  // 1) LISTA DE ITENS DA PLANILHA
+  // (Cole aqui o array itensBasePlanilha inteiro que já usamos antes)
+  // ==========================================
+  const itensBasePlanilha = [
+    // EXEMPLOS. SUBSTITUA por toda a lista que você já tem:
+    {"sku": "CS-30", "cor": "", "qty": 300},
+    {"sku": "D-3204", "cor": "", "qty": 300},
+    {"sku": "D-3205", "cor": "", "qty": 300},
+    {"sku": "D-3210", "cor": "", "qty": 300},
+    {"sku": "D-4232", "cor": "", "qty": 300},
+    {"sku": "D-S3158", "cor": "PRETO", "qty": 300},
+    {"sku": "D-S3158", "cor": "VERMELHO", "qty": 300},
+    {"sku": "D-Y03", "cor": "CINZA", "qty": 300},
+    {"sku": "D-Y03", "cor": "LARANJA", "qty": 300},
+    {"sku": "D-Y04", "cor": "", "qty": 300},
+    {"sku": "D-Y05", "cor": "", "qty": 300},
+    {"sku": "KP-RO826", "cor": "", "qty": 300},
+    {"sku": "KP-RO833", "cor": "", "qty": 300},
+    {"sku": "KP-RO832", "cor": "", "qty": 300},
+    {"sku": "KP-RO852", "cor": "", "qty": 300},
+    {"sku": "KP-6040", "cor": "", "qty": 300},
+    {"sku": "KP-TE112", "cor": "ROSA", "qty": 300},
+    {"sku": "ON-FN632", "cor": "AZUL", "qty": 300},
+    {"sku": "ON-FN632", "cor": "ROSA", "qty": 300},
+    {"sku": "ON-FN632", "cor": "VERDE", "qty": 300},
+    {"sku": "TE-115", "cor": "", "qty": 300},
+    {"sku": "TE-124", "cor": "", "qty": 300},
+    {"sku": "PG-9023S", "cor": "", "qty": 300},
+    {"sku": "XKO01PRETO", "cor": "", "qty": 300},
+    // ...
+  ];
 
-  const btnCamera = document.getElementById('btnCamera');
-  const btnFecharCamera = document.getElementById('btnFecharCamera');
-  const cameraArea = document.getElementById('cameraArea');
-  const videoPreview = document.getElementById('videoPreview');
-  const ocrStatus = document.getElementById('ocrStatus');
-  const ocrUltimoTexto = document.getElementById('ocrUltimoTexto');
-
-  let mediaStream = null;
-  let ocrRodando = false;
-
-  // =========================
-  // 2) Beep (som)
-  // =========================
-  function tocarBeep() {
-    try {
-      const AudioCtx = window.AudioContext || window.webkitAudioContext;
-      const ctx = new AudioCtx();
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-
-      osc.type = 'square';
-      osc.frequency.value = 1200; // Hz
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      gain.gain.value = 0.1;
-
-      osc.start();
-
-      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.1);
-      osc.stop(ctx.currentTime + 0.11);
-    } catch (e) {
-      console.warn("Não foi possível tocar beep:", e);
-    }
-  }
-
-  // =========================
-  // 3) Inicialização dos itens
-  // =========================
   function inicializarItens() {
     itens = itensBasePlanilha.map(obj => ({
       id: proximoId++,
       sku: obj.sku,
       cor: obj.cor || "",
-      qty: Number(obj.qty) || 0,
+      qty: obj.qty || 300,
       bipado: 0
     }));
     renderTabela();
   }
 
-  function normalizarTexto(txt) {
-    return (txt || "").toString().trim().toUpperCase();
+  // ==========================================
+  // 2) NORMALIZAÇÃO DE TEXTO / COR
+  // ==========================================
+  function normalizarTexto(t) {
+    if (!t) return "";
+    return t.toString().trim().toUpperCase();
   }
 
-  // =========================
-  // 4) Renderizar tabela
-  // =========================
+  function normalizarCorCanon(cor) {
+    if (!cor) return "";
+    let c = normalizarTexto(cor);
+    c = c
+      .replace(/[ÁÀÂÃ]/g, "A")
+      .replace(/[ÉÈÊ]/g, "E")
+      .replace(/[ÍÌÎ]/g, "I")
+      .replace(/[ÓÒÔÕ]/g, "O")
+      .replace(/[ÚÙÛ]/g, "U")
+      .replace(/Ç/g, "C");
+    c = c.replace(/\s+/g, " ");
+
+    const mapa = {
+      "BCO": "BRANCO",
+      "BRAN": "BRANCO",
+      "BRANCO": "BRANCO",
+      "PRETA": "PRETO",
+      "PRETO": "PRETO",
+      "PT": "PRETO",
+      "PTO": "PRETO",
+      "AZUL": "AZUL",
+      "VERDE": "VERDE",
+      "VD": "VERDE",
+      "ROSA": "ROSA",
+      "VERM": "VERMELHO",
+      "VERMELHO": "VERMELHO",
+      "LARANJA": "LARANJA",
+      "CINZA": "CINZA",
+      "MARROM": "MARROM",
+      "LILAS": "LILAS",
+      "ROXO": "ROXO",
+      "ROSE": "ROSE",
+      "ROSEGOLD": "ROSE"
+    };
+
+    const semEspaco = c.replace(/\s+/g, "");
+    if (mapa[semEspaco]) return mapa[semEspaco];
+    if (mapa[c]) return mapa[c];
+    return c;
+  }
+
+  function prettyCor(corCanon) {
+    if (!corCanon) return "";
+    return corCanon.toUpperCase();
+  }
+
+  // ==========================================
+  // 3) ADAPTAÇÃO DE SKU (planilha -> etiqueta PDF)
+  // ==========================================
+  function adaptarSkuParaPdf(skuOriginal, corOriginal) {
+    if (!skuOriginal) return "";
+    const skuUp = normalizarTexto(skuOriginal);
+    const corCanon = normalizarCorCanon(corOriginal || "");
+    const corPretty = prettyCor(corCanon);
+
+    if (skuUp === "D-3204") {
+      return "D-3204+MIC";
+    }
+    if (skuUp === "D-3210") {
+      return "D-3210 (SEM MICROFONE)";
+    }
+    if (skuUp === "D-3158" || skuUp === "D-S3158") {
+      const base = "D-S3158";
+      if (corPretty) return base + " (" + corPretty + ")";
+      return base;
+    }
+    if (skuUp === "D-Y03") {
+      if (corCanon) return "D-Y03" + corCanon + " (" + corPretty + ")";
+      return "D-Y03";
+    }
+    if (skuUp === "D-Y04" || skuUp === "D-Y05" || skuUp === "D-Y04/05") {
+      let base = skuUp;
+      if (corPretty) return base + " (" + corPretty + ")";
+      return base;
+    }
+    if (skuUp === "KP-7023") {
+      if (corCanon) return "KP-7023" + corCanon + " (" + corPretty + ")";
+      return "KP-7023";
+    }
+    if (skuUp === "ON-FN632" || skuUp === "KP-FN632") {
+      if (corCanon) return "ON-FN632" + corCanon + " (" + corPretty + ")";
+      return "ON-FN632";
+    }
+    if (skuUp === "KP-TE115" || skuUp === "TE-115") {
+      return "TE-115 (Tecnologia Anti-Ghost)";
+    }
+    if (skuUp === "KP-TE124" || skuUp === "TE-124") {
+      return "TE-124 (Iluminação RGB Gamer)";
+    }
+    if (skuUp === "KP-TE112") {
+      if (corCanon) return "KP-TE112" + corCanon + " (" + corPretty + ")";
+      return "KP-TE112";
+    }
+    if (skuUp === "KP-LB521" || skuUp === "LB-521") {
+      return "LB-521";
+    }
+    if (skuUp === "KP-PN899" || skuUp === "PN-899") {
+      return "PN-899PD";
+    }
+    if (skuUp === "PROT. AURICULAR" || skuUp === "PROT AURICULAR") {
+      return "PROTETOR AURICULAR";
+    }
+    if (skuUp === "D-MN001" || skuUp === "MONITOR D-MN001") {
+      return "MONITOR D-MN001";
+    }
+    if (skuUp === "XKO01PRETO") {
+      const corText = corPretty || "PRETO";
+      return "XKO01PRETO (" + corText + ")";
+    }
+    if (skuUp === "CS-30") {
+      return "CS-30";
+    }
+    if (skuUp === "RO-832") {
+      return "RO-832";
+    }
+    if (skuUp === "PG-9023S") {
+      return "PG-9023S";
+    }
+    if (skuUp === "M-303") {
+      return "M-303";
+    }
+    if (skuUp === "FONE" || skuUp === "FONE LEBOSS") {
+      return "FONE LEBOSS";
+    }
+
+    if (corPretty) {
+      return skuUp + " (" + corPretty + ")";
+    }
+    return skuUp;
+  }
+
+  // ==========================================
+  // 4) RENDERIZAÇÃO DE TABELA / RESUMO
+  // ==========================================
   function renderTabela() {
     tbodyItens.innerHTML = "";
 
     const ordenados = [...itens].sort((a, b) => {
-      const sA = normalizarTexto(a.sku);
-      const sB = normalizarTexto(b.sku);
+      const sA = a.sku.toUpperCase();
+      const sB = b.sku.toUpperCase();
       if (sA < sB) return -1;
       if (sA > sB) return 1;
-      const cA = normalizarTexto(a.cor);
-      const cB = normalizarTexto(b.cor);
+      const cA = (a.cor || "").toUpperCase();
+      const cB = (b.cor || "").toUpperCase();
       if (cA < cB) return -1;
       if (cA > cB) return 1;
       return 0;
     });
 
-    ordenados.forEach((item, index) => {
+    ordenados.forEach((item, idx) => {
       const tr = document.createElement('tr');
-
+      const bip = item.bipado || 0;
       const esperado = Number(item.qty) || 0;
-      const bip = Number(item.bipado) || 0;
 
       let status = "";
       let badgeClass = "";
       let rowClass = "";
-
       if (esperado === 0 && bip === 0) {
         status = "Sem quantidade";
       } else if (bip === 0 && esperado > 0) {
@@ -373,25 +475,24 @@
         badgeClass = "badge-alerta";
         rowClass = "alerta";
       }
-
       tr.className = rowClass;
 
-      // #
       const tdIdx = document.createElement('td');
-      tdIdx.textContent = index + 1;
+      tdIdx.textContent = idx + 1;
       tr.appendChild(tdIdx);
 
-      // SKU
       const tdSku = document.createElement('td');
       tdSku.textContent = item.sku;
       tr.appendChild(tdSku);
 
-      // Cor
       const tdCor = document.createElement('td');
       tdCor.textContent = item.cor || "-";
       tr.appendChild(tdCor);
 
-      // Quantidade (editável)
+      const tdSkuPdf = document.createElement('td');
+      tdSkuPdf.textContent = adaptarSkuParaPdf(item.sku, item.cor);
+      tr.appendChild(tdSkuPdf);
+
       const tdQtd = document.createElement('td');
       const inputQtd = document.createElement('input');
       inputQtd.type = "number";
@@ -405,12 +506,10 @@
       tdQtd.appendChild(inputQtd);
       tr.appendChild(tdQtd);
 
-      // Bipado
       const tdBip = document.createElement('td');
       tdBip.textContent = bip;
       tr.appendChild(tdBip);
 
-      // Status
       const tdStatus = document.createElement('td');
       if (status) {
         const span = document.createElement('span');
@@ -420,16 +519,25 @@
       }
       tr.appendChild(tdStatus);
 
-      // Ações
       const tdAcoes = document.createElement('td');
       tdAcoes.className = "row-actions";
-      const btnReset = document.createElement('button');
-      btnReset.textContent = "Zerar bipado";
-      btnReset.addEventListener('click', () => {
-        item.bipado = 0;
-        renderTabela();
+
+      const btnEditar = document.createElement('button');
+      btnEditar.textContent = "Editar";
+      btnEditar.className = "editar";
+      btnEditar.addEventListener('click', () => {
+        document.getElementById('novoSku').value = item.sku;
+        document.getElementById('novaCor').value = item.cor;
+        document.getElementById('novaQtd').value = item.qty;
       });
-      tdAcoes.appendChild(btnReset);
+      tdAcoes.appendChild(btnEditar);
+
+      const btnRemover = document.createElement('button');
+      btnRemover.textContent = "Remover";
+      btnRemover.addEventListener('click', () => removerItemPorId(item.id));
+      tdAcoes.appendChild(btnRemover);
+
+      tr.appendChild(tdAcoes);
 
       tbodyItens.appendChild(tr);
     });
@@ -441,17 +549,16 @@
     const totalItens = itens.length;
     const totalQtd = itens.reduce((s, it) => s + (Number(it.qty) || 0), 0);
     const totalBip = itens.reduce((s, it) => s + (Number(it.bipado) || 0), 0);
-
     resumoDiv.innerHTML =
-      `<p><b>Total de SKUs/variações:</b> ${totalItens}<br>` +
-      `<b>Total de peças esperadas:</b> ${totalQtd}<br>` +
-      `<b>Total de peças bipadas:</b> ${totalBip}</p>`;
+      `<p><b>Variações cadastradas:</b> ${totalItens}<br>` +
+      `<b>Peças esperadas:</b> ${totalQtd}<br>` +
+      `<b>Peças bipadas:</b> ${totalBip}</p>`;
   }
 
-  // =========================
-  // 5) Adicionar / Atualizar / Excluir SKU
-  // =========================
-  btnAdicionar.addEventListener('click', () => {
+  // ==========================================
+  // 5) ADICIONAR / ATUALIZAR / REMOVER ITENS
+  // ==========================================
+  document.getElementById('btnAdicionar').addEventListener('click', function() {
     const sku = document.getElementById('novoSku').value.trim();
     const cor = document.getElementById('novaCor').value.trim();
     const qtd = Number(document.getElementById('novaQtd').value) || 0;
@@ -463,35 +570,7 @@
     adicionarOuAtualizarItem(sku, cor, qtd, true);
   });
 
-  btnExcluirSku.addEventListener('click', () => {
-    const sku = document.getElementById('novoSku').value.trim();
-    const cor = document.getElementById('novaCor').value.trim();
-
-    if (!sku) {
-      alert("Informe o SKU para excluir.");
-      return;
-    }
-
-    const skuNorm = normalizarTexto(sku);
-    const corNorm = normalizarTexto(cor);
-
-    const antes = itens.length;
-    itens = itens.filter(it =>
-      normalizarTexto(it.sku) !== skuNorm ||
-      normalizarTexto(it.cor) !== corNorm
-    );
-    const depois = itens.length;
-
-    if (depois < antes) {
-      infoBipagem.textContent = `SKU "${sku}" (${cor || "-"}) removido.`;
-      tocarBeep();
-      renderTabela();
-    } else {
-      infoBipagem.textContent = `SKU "${sku}" (${cor || "-"}) não encontrado para remoção.`;
-    }
-  });
-
-  function adicionarOuAtualizarItem(sku, cor, qty, limparCampos) {
+  function adicionarOuAtualizarItem(sku, cor, qty, renderDepois) {
     const skuNorm = normalizarTexto(sku);
     const corNorm = normalizarTexto(cor);
 
@@ -502,193 +581,277 @@
 
     if (item) {
       item.qty = qty;
-      infoBipagem.textContent = `SKU "${sku}" (${cor || "-"}) atualizado para quantidade ${qty}.`;
     } else {
       itens.push({
         id: proximoId++,
-        sku,
-        cor,
-        qty,
+        sku: sku,
+        cor: cor,
+        qty: qty,
         bipado: 0
       });
-      infoBipagem.textContent = `SKU "${sku}" (${cor || "-"}) adicionado com quantidade ${qty}.`;
     }
 
-    tocarBeep();
-    renderTabela();
-
-    if (limparCampos) {
+    if (renderDepois) {
+      renderTabela();
       document.getElementById('novoSku').value = "";
       document.getElementById('novaCor').value = "";
       document.getElementById('novaQtd').value = 300;
     }
   }
 
-  // =========================
-  // 6) Bipagem por teclado / leitor
-  // =========================
-  btnIniciarBipagem.addEventListener('click', () => {
-    campoBipagem.focus();
-  });
+  function removerItemPorId(id) {
+    itens = itens.filter(it => it.id !== id);
+    renderTabela();
+  }
 
-  campoBipagem.addEventListener('keydown', (e) => {
+  // ==========================================
+  // 6) BIPAGEM DIRETA (TEXTO / LEITOR TECLADO)
+  // ==========================================
+  campoBipagem.addEventListener('keydown', function(e) {
     if (e.key === 'Enter') {
       e.preventDefault();
       const valor = campoBipagem.value.trim();
       if (valor) {
-        registrarBipagem(valor, 1); // padrão: 1 peça
+        processarLinhaEtiqueta(valor);
         campoBipagem.value = "";
       }
     }
   });
 
-  function registrarBipagem(skuLido, qtdLida) {
-    const skuNorm = normalizarTexto(skuLido);
-    const quantidade = Number(qtdLida) || 1;
+  // Recebe UMA linha tipo "1. CS-30 *3" ou "1. D-Y03LARANJA (LARANJA) *1"
+  function processarLinhaEtiqueta(linha) {
+    const regex = /^\s*\d+\.\s*(.+?)\s*\*([\d,\.]+)/;
+    const m = linha.match(regex);
+    if (!m) {
+      infoBipagem.textContent = `⚠ Não encontrei padrão "1. SKU *QTD" em: "${linha}"`;
+      return;
+    }
+    const skuEtiqueta = m[1].trim();
+    let qtd = m[2].replace(',', '.');
+    qtd = parseInt(qtd, 10) || 0;
+    if (qtd <= 0) {
+      infoBipagem.textContent = `⚠ Quantidade inválida em: "${linha}"`;
+      return;
+    }
 
-    const candidatos = itens.filter(it => normalizarTexto(it.sku) === skuNorm);
+    // Tenta casar SKU da etiqueta com SKU p/ bipagem
+    registrarBipagemPorSkuEtiqueta(skuEtiqueta, qtd);
+  }
+
+  // Aumenta bipado daquele SKU pela quantidade
+  function registrarBipagemPorSkuEtiqueta(skuEtiqueta, quantidade) {
+    const etiquetaNorm = normalizarTexto(skuEtiqueta);
+
+    const candidatos = itens.filter(it => {
+      const skuPdf = normalizarTexto(adaptarSkuParaPdf(it.sku, it.cor));
+      return skuPdf === etiquetaNorm;
+    });
 
     if (candidatos.length === 0) {
-      infoBipagem.textContent = `⚠ SKU "${skuLido}" não encontrado na tabela.`;
+      infoBipagem.textContent =
+        `⚠ SKU da etiqueta não encontrado na tabela: "${skuEtiqueta}"`;
       return;
     }
     if (candidatos.length > 1) {
-      infoBipagem.textContent = `⚠ SKU "${skuLido}" corresponde a mais de uma linha (variação). Especifique melhor.`;
+      infoBipagem.textContent =
+        `⚠ SKU "${skuEtiqueta}" corresponde a mais de um item na tabela. Verifique variações.`;
       return;
     }
 
     const item = candidatos[0];
-    item.bipado = (Number(item.bipado) || 0) + quantidade;
-    tocarBeep();
+    item.bipado = (item.bipado || 0) + quantidade;
 
     const esperado = Number(item.qty) || 0;
     const bip = item.bipado;
-    let msg = `"${item.sku}" lançado +${quantidade}. Agora: ${bip}/${esperado}.`;
-    if (esperado > 0) {
-      if (bip === esperado) msg += " ✅ Completo.";
-      else if (bip > esperado) msg += " ⚠ EXCESSO.";
+
+    let msg;
+    if (bip > esperado && esperado > 0) {
+      msg = `ALERTA: "${skuEtiqueta}" bipado ${bip}x, mas quantidade esperada é ${esperado}.`;
+    } else if (bip === esperado && esperado > 0) {
+      msg = `OK: "${skuEtiqueta}" atingiu a quantidade completa (${bip}/${esperado}).`;
+    } else {
+      msg = `PENDENTE: "${skuEtiqueta}" bipado ${bip}/${esperado}.`;
     }
     infoBipagem.textContent = msg;
+    tocarBeep();
     renderTabela();
   }
 
-  // =========================
-  // 7) Câmera + OCR
-  // =========================
-  btnCamera.addEventListener('click', iniciarCameraEOcr);
-  btnFecharCamera.addEventListener('click', pararCameraEOcr);
+  function tocarBeep() {
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "square";
+      osc.frequency.value = 900;
+      gain.gain.value = 0.1;
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      setTimeout(() => {
+        osc.stop();
+        ctx.close();
+      }, 120);
+    } catch (e) {
+      // se der erro, ignora (sem som)
+    }
+  }
 
-  async function iniciarCameraEOcr() {
-    if (ocrRodando) {
-      cameraArea.style.display = 'block';
-      ocrStatus.textContent = "Câmera já ativa. Mire na linha da etiqueta.";
+  // ==========================================
+  // 7) LEITOR QR CODE (RASTREIO)
+  // ==========================================
+  let html5QrCode = null;
+  let cameraQrAtiva = false;
+
+  const btnCameraQR = document.getElementById('btnCameraQR');
+  const btnFecharQR = document.getElementById('btnFecharQR');
+
+  btnCameraQR.addEventListener('click', async function() {
+    if (cameraQrAtiva) return;
+    try {
+      html5QrCode = new Html5Qrcode("reader");
+      infoQr.textContent = "Abrindo câmera para ler QR...";
+
+      await html5QrCode.start(
+        { facingMode: "environment" },
+        { fps: 10, qrbox: { width: 220, height: 220 } },
+        (decodedText, decodedResult) => {
+          // decodedText é, por ex, "BR2540..."
+          registrarQr(decodedText);
+        },
+        (errorMessage) => {
+          // erros de leitura contínuos são normais, não mostra nada
+        }
+      );
+      cameraQrAtiva = true;
+      btnCameraQR.disabled = true;
+      btnFecharQR.disabled = false;
+      infoQr.textContent = "Câmera ativa. Aponte para o QR code da etiqueta.";
+    } catch (err) {
+      console.error(err);
+      infoQr.textContent = "Não foi possível abrir a câmera para QR: " + err;
+    }
+  });
+
+  btnFecharQR.addEventListener('click', async function() {
+    if (html5QrCode && cameraQrAtiva) {
+      try {
+        await html5QrCode.stop();
+        await html5QrCode.clear();
+      } catch (e) {
+        console.error(e);
+      }
+    }
+    cameraQrAtiva = false;
+    btnCameraQR.disabled = false;
+    btnFecharQR.disabled = true;
+    infoQr.textContent = "Câmera de QR desligada.";
+  });
+
+  function registrarQr(texto) {
+    const t = texto.trim();
+    if (!t) return;
+
+    if (!rastreios.includes(t)) {
+      rastreios.push(t);
+      tocarBeep();
+    }
+    infoQr.textContent = `Último QR lido: ${t}`;
+    atualizarListaRastreios();
+  }
+
+  function atualizarListaRastreios() {
+    if (!rastreios.length) {
+      listaRastreiosDiv.innerHTML = "";
       return;
     }
+    listaRastreiosDiv.innerHTML =
+      "<b>Rastreios lidos:</b><br>" +
+      rastreios.map(r => `<span class="chip">${r}</span>`).join(" ");
+  }
 
+  // ==========================================
+  // 8) OCR PARA ETIQUETA INTEIRA (FOTO)
+  // ==========================================
+  const btnCameraOCR = document.getElementById('btnCameraOCR');
+  const inputOCR = document.getElementById('inputOCR');
+  const ocrPreview = document.getElementById('ocrPreview');
+
+  btnCameraOCR.addEventListener('click', function() {
+    // dispara o input de arquivo (abre câmera no celular)
+    inputOCR.click();
+  });
+
+  inputOCR.addEventListener('change', function(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = function(evt) {
+      const dataUrl = evt.target.result;
+      ocrPreview.src = dataUrl;
+      ocrPreview.style.display = "block";
+      infoOcr.textContent = "Lendo texto da etiqueta (OCR)... isso pode levar alguns segundos.";
+      fazerOcrNaImagem(dataUrl);
+    };
+    reader.readAsDataURL(file);
+  });
+
+  async function fazerOcrNaImagem(dataUrl) {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: 'environment'
+      const result = await Tesseract.recognize(
+        dataUrl,
+        'por', // idioma pt
+        {
+          logger: m => {
+            // console.log(m);
+          }
         }
-      });
-      mediaStream = stream;
-      videoPreview.srcObject = stream;
-      cameraArea.style.display = 'block';
-      ocrStatus.textContent = "Câmera ativa. Lendo periodicamente...";
-
-      ocrRodando = true;
-      loopOcr();
-    } catch (e) {
-      console.error(e);
-      ocrStatus.textContent = "Não foi possível acessar a câmera: " + e;
-      cameraArea.style.display = 'none';
-      ocrRodando = false;
-    }
-  }
-
-  async function pararCameraEOcr() {
-    if (mediaStream) {
-      mediaStream.getTracks().forEach(t => t.stop());
-      mediaStream = null;
-    }
-    ocrRodando = false;
-    cameraArea.style.display = 'none';
-    ocrStatus.textContent = "Câmera desligada.";
-  }
-
-  async function loopOcr() {
-    while (ocrRodando) {
-      const frameText = await capturarTextoFrame();
-      if (frameText) {
-        ocrUltimoTexto.textContent = frameText;
-        // tenta achar linha com padrão 1. SKU *QTD
-        const { sku, qtd } = extrairSkuEQuantidade(frameText);
-        if (sku) {
-          registrarBipagem(sku, qtd);
-        }
-      }
-      // espera um pouco antes da próxima leitura
-      await esperar(2000);
-    }
-  }
-
-  function esperar(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
-  }
-
-  async function capturarTextoFrame() {
-    if (!videoPreview.videoWidth || !videoPreview.videoHeight) {
-      return "";
-    }
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d');
-
-    canvas.width = videoPreview.videoWidth;
-    canvas.height = videoPreview.videoHeight;
-
-    // desenha frame atual
-    ctx.drawImage(videoPreview, 0, 0, canvas.width, canvas.height);
-
-    // OCR usando Tesseract
-    try {
-      ocrStatus.textContent = "Lendo texto da imagem...";
-      const { data: { text } } = await Tesseract.recognize(
-        canvas.toDataURL('image/png'),
-        'por', // pode alternar 'eng'/'por' conforme melhor resultado
-        { logger: m => {} }
       );
-      ocrStatus.textContent = "Texto lido. Procurando linha com SKU...";
-      return text;
-    } catch (e) {
-      console.error("Erro OCR:", e);
-      ocrStatus.textContent = "Erro ao ler texto (OCR).";
-      return "";
+      const texto = result.data.text || "";
+      infoOcr.textContent = "OCR concluído. Processando linhas de SKU...";
+
+      processarTextoEtiquetaCompleta(texto);
+    } catch (err) {
+      console.error(err);
+      infoOcr.textContent = "Erro ao fazer OCR: " + err;
     }
   }
 
-  // Procura padrão: "1. QUALQUER COISA *QTD"
-  function extrairSkuEQuantidade(texto) {
-    if (!texto) return { sku: null, qtd: 1 };
-
+  function processarTextoEtiquetaCompleta(texto) {
     const linhas = texto.split(/\r?\n/);
+    let encontrados = 0;
+
     for (const linha of linhas) {
-      // limpa espaços excessivos
-      const l = linha.replace(/\s+/g, ' ').trim();
-      // regex: começa com "1." ou similar, pega tudo até "*n"
-      // Exemplo: "1. D-Y03LARANJA (LARANJA) *3"
-      const m = l.match(/^1\.?\s*(.+?)\s*\*+(\d+)\s*$/i);
-      if (m) {
-        const sku = m[1].trim();   // tudo entre "1." e "*"
-        const qtd = parseInt(m[2], 10) || 1;
-        return { sku, qtd };
-      }
+      const l = linha.trim();
+      if (!l) continue;
+
+      // tenta aplicar o mesmo padrão "1. SKU *QTD"
+      const regex = /^\s*\d+\.\s*(.+?)\s*\*([\d,\.]+)/;
+      const m = l.match(regex);
+      if (!m) continue;
+
+      encontrados++;
+      const skuEtiqueta = m[1].trim();
+      let qtd = m[2].replace(',', '.');
+      qtd = parseInt(qtd, 10) || 0;
+      if (qtd <= 0) continue;
+
+      registrarBipagemPorSkuEtiqueta(skuEtiqueta, qtd);
     }
-    return { sku: null, qtd: 1 };
+
+    if (!encontrados) {
+      infoOcr.textContent =
+        "OCR concluído, mas não encontrei nenhuma linha no formato '1. SKU *QTD'.";
+    } else {
+      infoOcr.textContent =
+        `OCR OK: encontrei ${encontrados} linha(s) de SKU no formato '1. SKU *QTD' e atualizei o estoque.`;
+    }
   }
 
-  // =========================
-  // 8) Inicializar
-  // =========================
+  // ==========================================
+  // 9) INICIALIZAÇÃO
+  // ==========================================
   inicializarItens();
 </script>
 </body>
