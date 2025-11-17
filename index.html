@@ -128,10 +128,10 @@
   <h1>Controle de Bipagem - Etiqueta Completa (Texto + QR)</h1>
 
   <p class="small">
-    Fluxo pensado pra suas etiquetas Shopee:<br>
-    • <b>Leitor OCR da etiqueta inteira</b> → separa linhas tipo <code>1. CS-30 *1</code> e joga no estoque.<br>
-    • <b>Leitor de QR code</b> → pega código de rastreio (ex: <code>BR2540...</code>).<br>
-    • Estoque inicial vem da planilha <b>Planilha SKU.xlsx</b> (lista de SKUs já embutida no código).
+    Fluxo pensado pras suas etiquetas Shopee:<br>
+    • <b>Leitor OCR da etiqueta inteira</b> → separa linhas tipo <code>1. CS-30 *1</code> e atualiza o estoque.<br>
+    • <b>Leitor de QR code</b> → pega código de rastreio (ex: <code>BR25...</code>) e marca duplicidade.<br>
+    • Estoque inicial vem da sua planilha <b>Planilha SKU.xlsx</b> (lista de SKUs já embutida no código).
   </p>
 
   <!-- RESUMO -->
@@ -184,6 +184,7 @@
   <h2>3) Leitura por QR code (rastreio)</h2>
   <p class="small">
     Esse modo lê apenas o <b>QR code</b> da etiqueta para obter o código de rastreio (ex: <code>BR25...</code>).
+    Se o mesmo código for lido duas vezes, ele avisa <b>duplicado</b>.
   </p>
   <div class="toolbar">
     <button id="btnCameraQR">Abrir câmera (QR)</button>
@@ -196,9 +197,9 @@
   <!-- LEITOR DE TEXTO (OCR) PARA ETIQUETA INTEIRA -->
   <h2>4) Ler etiqueta inteira (OCR texto) → SKU + quantidade</h2>
   <p class="small">
-    Esse modo tira uma foto da etiqueta, faz OCR e procura linhas no padrão
+    Esse modo tira uma foto da etiqueta, faz OCR e procura padrões
     <code>1. ALGUM-SKU (COR) *QTD</code>.<br>
-    Ele vai extrair o <b>SKU completo</b> e a <b>quantidade</b>, depois descontar do estoque (bipado).
+    Ele extrai o <b>SKU completo</b> e a <b>quantidade</b>, depois soma no “Bipado”.
   </p>
 
   <div class="toolbar">
@@ -211,8 +212,8 @@
   <!-- LEITOR POR TEXTO (campo manual) -->
   <h2>5) Bipagem direta (campo texto / leitor via teclado)</h2>
   <p class="small">
-    Se o leitor de código de barras funcionar como teclado, você pode deixar esse campo focado e apenas bipar.<br>
-    Você também pode digitar algo no formato da etiqueta, como:
+    Se o leitor de código de barras atuar como teclado, deixe esse campo focado e bipar.<br>
+    Você também pode colar algo no formato da etiqueta, como:
     <code>1. TE-124 (Iluminação RGB Gamer) *3</code>.
   </p>
   <div class="toolbar">
@@ -220,10 +221,10 @@
   </div>
   <div id="infoBipagem" class="small"></div>
 
-  <!-- SOM DE BIP -->
-  <audio id="beepAudio">
-    <!-- Beep simples gerado via Web Audio (fallback se não tocar nada) -->
-  </audio>
+  <!-- SONS (OK / ERRO) -->
+  <audio id="somOk"></audio>
+  <audio id="somErro"></audio>
+
 </div>
 
 <!-- SCRIPTS EXTERNOS -->
@@ -236,48 +237,159 @@
   // ==========================================
   let itens = []; // {id, sku, cor, qty, bipado}
   let proximoId = 1;
-  let rastreios = []; // lista de códigos lidos no QR
 
-  const tbodyItens   = document.getElementById('tbodyItens');
-  const resumoDiv    = document.getElementById('resumo');
-  const campoBipagem = document.getElementById('campoBipagem');
-  const infoBipagem  = document.getElementById('infoBipagem');
-  const infoQr       = document.getElementById('infoQr');
+  let rastreios = [];          // lista para exibir na tela
+  const rastreiosLidos = new Set(); // para checar duplicidade
+
+  const tbodyItens        = document.getElementById('tbodyItens');
+  const resumoDiv         = document.getElementById('resumo');
+  const campoBipagem      = document.getElementById('campoBipagem');
+  const infoBipagem       = document.getElementById('infoBipagem');
+  const infoQr            = document.getElementById('infoQr');
   const listaRastreiosDiv = document.getElementById('listaRastreios');
-  const infoOcr      = document.getElementById('infoOcr');
-  const beepAudio    = document.getElementById('beepAudio');
+  const infoOcr           = document.getElementById('infoOcr');
+  const ocrPreview        = document.getElementById('ocrPreview');
 
   // ==========================================
-  // 1) LISTA DE ITENS DA PLANILHA
-  // (Cole aqui o array itensBasePlanilha inteiro que já usamos antes)
+  // 1) LISTA DE ITENS DA PLANILHA (300 cada)
+  // (baseada naquele HTML grande que você já tinha)
   // ==========================================
   const itensBasePlanilha = [
-    // EXEMPLOS. SUBSTITUA por toda a lista que você já tem:
-    {"sku": "CS-30", "cor": "", "qty": 300},
-    {"sku": "D-3204", "cor": "", "qty": 300},
-    {"sku": "D-3205", "cor": "", "qty": 300},
-    {"sku": "D-3210", "cor": "", "qty": 300},
-    {"sku": "D-4232", "cor": "", "qty": 300},
-    {"sku": "D-S3158", "cor": "PRETO", "qty": 300},
-    {"sku": "D-S3158", "cor": "VERMELHO", "qty": 300},
-    {"sku": "D-Y03", "cor": "CINZA", "qty": 300},
-    {"sku": "D-Y03", "cor": "LARANJA", "qty": 300},
-    {"sku": "D-Y04", "cor": "", "qty": 300},
-    {"sku": "D-Y05", "cor": "", "qty": 300},
     {"sku": "KP-RO826", "cor": "", "qty": 300},
-    {"sku": "KP-RO833", "cor": "", "qty": 300},
-    {"sku": "KP-RO832", "cor": "", "qty": 300},
     {"sku": "KP-RO852", "cor": "", "qty": 300},
-    {"sku": "KP-6040", "cor": "", "qty": 300},
+    {"sku": "KP-RO832", "cor": "", "qty": 300},
+    {"sku": "KP-548B", "cor": "", "qty": 300},
+    {"sku": "KP-TC07", "cor": "", "qty": 300},
+    {"sku": "KP-LB521", "cor": "", "qty": 300},
+    {"sku": "KP-TE119", "cor": "", "qty": 300},
+    {"sku": "KP-517", "cor": "", "qty": 300},
+    {"sku": "KP-7023", "cor": "PRETO", "qty": 300},
+    {"sku": "KP-7023", "cor": "BCO", "qty": 300},
+    {"sku": "KP-7023", "cor": "AZUL", "qty": 300},
+    {"sku": "KP-MU003", "cor": "", "qty": 300},
+    {"sku": "KP-RO833", "cor": "", "qty": 300},
+    {"sku": "KP-MU014", "cor": "", "qty": 300},
+    {"sku": "KP-TE112", "cor": "PRETO", "qty": 300},
+    {"sku": "KP-TE112", "cor": "VERDE", "qty": 300},
     {"sku": "KP-TE112", "cor": "ROSA", "qty": 300},
-    {"sku": "ON-FN632", "cor": "AZUL", "qty": 300},
-    {"sku": "ON-FN632", "cor": "ROSA", "qty": 300},
-    {"sku": "ON-FN632", "cor": "VERDE", "qty": 300},
-    {"sku": "TE-115", "cor": "", "qty": 300},
-    {"sku": "TE-124", "cor": "", "qty": 300},
+    {"sku": "KP-5816", "cor": "", "qty": 300},
+    {"sku": "KP-CA127", "cor": "", "qty": 300},
+    {"sku": "KP-ONFN639", "cor": "", "qty": 300},
+    {"sku": "KP-ONF90", "cor": "", "qty": 300},
+    {"sku": "KP-2064", "cor": "", "qty": 300},
+    {"sku": "KP-TC19", "cor": "", "qty": 300},
+    {"sku": "KP-TE115", "cor": "", "qty": 300},
+    {"sku": "KP-TE124", "cor": "", "qty": 300},
+    {"sku": "KP-6040", "cor": "", "qty": 300},
+    {"sku": "KP-IM600", "cor": "", "qty": 300},
+    {"sku": "KP-LBFN606", "cor": "", "qty": 300},
+    {"sku": "KP-RO802", "cor": "", "qty": 300},
+    {"sku": "KP-PN899", "cor": "PRETO", "qty": 300},
+    {"sku": "KP-PN899", "cor": "BRANCO", "qty": 300},
+    {"sku": "D-3204", "cor": "", "qty": 300},
+    {"sku": "D-Y03", "cor": "AZUL", "qty": 300},
+    {"sku": "D-Y03", "cor": "VERM", "qty": 300},
+    {"sku": "D-Y03", "cor": "LARANJA", "qty": 300},
+    {"sku": "D-Y03", "cor": "PRATA", "qty": 300},
+    {"sku": "D-Y03", "cor": "PRETA", "qty": 300},
+    {"sku": "D-3210", "cor": "", "qty": 300},
+    {"sku": "D-F12", "cor": "", "qty": 300},
+    {"sku": "D-6201", "cor": "", "qty": 300},
+    {"sku": "D-P13", "cor": "", "qty": 300},
+    {"sku": "D-G105", "cor": "", "qty": 300},
+    {"sku": "D-3142", "cor": "", "qty": 300},
+    {"sku": "D-F8", "cor": "", "qty": 300},
+    {"sku": "D-F13", "cor": "", "qty": 300},
+    {"sku": "D-F11", "cor": "", "qty": 300},
+    {"sku": "D-F14", "cor": "", "qty": 300},
+    {"sku": "D-S14", "cor": "", "qty": 300},
+    {"sku": "D-S4145", "cor": "", "qty": 300},
+    {"sku": "D-EM07", "cor": "", "qty": 300},
+    {"sku": "D-3205", "cor": "", "qty": 300},
+    {"sku": "D-4235", "cor": "", "qty": 300},
+    {"sku": "D-S30", "cor": "", "qty": 300},
+    {"sku": "D-BH2807", "cor": "", "qty": 300},
+    {"sku": "D-4232", "cor": "", "qty": 300},
+    {"sku": "D-3158", "cor": "PRETO", "qty": 300},
+    {"sku": "D-3158", "cor": "AZUL", "qty": 300},
+    {"sku": "D-3158", "cor": "AMARELO", "qty": 300},
+    {"sku": "D-3158", "cor": "VERM", "qty": 300},
+    {"sku": "D-3158", "cor": "VERDE", "qty": 300},
+    {"sku": "D-BH1065", "cor": "", "qty": 300},
+    {"sku": "D-BH1064", "cor": "", "qty": 300},
+    {"sku": "D-BH1051", "cor": "", "qty": 300},
+    {"sku": "D-BH1050", "cor": "", "qty": 300},
+    {"sku": "D-BH1019", "cor": "", "qty": 300},
+    {"sku": "D-1601", "cor": "", "qty": 300},
+    {"sku": "D-3151", "cor": "", "qty": 300},
+    {"sku": "D-Y04/05", "cor": "", "qty": 300},
+    {"sku": "D-NK1201", "cor": "", "qty": 300},
+    {"sku": "D-MN001", "cor": "", "qty": 300},
+    {"sku": "D-TELA04", "cor": "", "qty": 300},
+    {"sku": "D-TELA02", "cor": "", "qty": 300},
+    {"sku": "D-AI05", "cor": "", "qty": 300},
+    {"sku": "D-A24E9903", "cor": "", "qty": 300},
+    {"sku": "D-AI06", "cor": "", "qty": 300},
+    {"sku": "D-X338", "cor": "", "qty": 300},
+    {"sku": "D-XK300", "cor": "", "qty": 300},
+    {"sku": "D-S8122", "cor": "", "qty": 300},
+    {"sku": "D-Y07", "cor": "", "qty": 300},
+    {"sku": "D-XK101", "cor": "", "qty": 300},
+    {"sku": "D-X612", "cor": "", "qty": 300},
+    {"sku": "PROT. AURICULAR", "cor": "", "qty": 300},
+    {"sku": "PAPABOLINHAS", "cor": "", "qty": 300},
+    {"sku": "M-303", "cor": "", "qty": 300},
+    {"sku": "CS-30", "cor": "", "qty": 300},
+    {"sku": "RO-832", "cor": "", "qty": 300},
+    {"sku": "LB-521", "cor": "", "qty": 300},
+    {"sku": "FONE", "cor": "", "qty": 300},
     {"sku": "PG-9023S", "cor": "", "qty": 300},
     {"sku": "XKO01PRETO", "cor": "", "qty": 300},
-    // ...
+    {"sku": "ON-FN632", "cor": "BRANCO", "qty": 300},
+    {"sku": "ON-FN632", "cor": "ROSA", "qty": 300},
+    {"sku": "ON-FN632", "cor": "VERDE", "qty": 300},
+    {"sku": "ON-FN632", "cor": "ROXO", "qty": 300},
+    {"sku": "ON-FN632", "cor": "AZUL", "qty": 300},
+    {"sku": "TE-115", "cor": "", "qty": 300},
+    {"sku": "TE-119", "cor": "", "qty": 300},
+    {"sku": "TE-121", "cor": "", "qty": 300},
+    {"sku": "TE-124", "cor": "", "qty": 300},
+    {"sku": "PN-899", "cor": "", "qty": 300},
+    {"sku": "CANETA TERMICA", "cor": "", "qty": 300},
+    {"sku": "TABLET INFANTIL", "cor": "azul", "qty": 300},
+    {"sku": "TABLET INFANTIL", "cor": "rosa", "qty": 300},
+    {"sku": "KP-TE129", "cor": "", "qty": 300},
+    {"sku": "KP-TE146", "cor": "", "qty": 300},
+    {"sku": "D-TELA03", "cor": "", "qty": 300},
+    {"sku": "D-TELA05", "cor": "", "qty": 300},
+    {"sku": "D-TELA06", "cor": "", "qty": 300},
+    {"sku": "D-TELA07", "cor": "", "qty": 300},
+    {"sku": "D-BH1064", "cor": "VERMELHO", "qty": 300},
+    {"sku": "D-BH1064", "cor": "PRETO", "qty": 300},
+    {"sku": "D-BH1064", "cor": "ROSA", "qty": 300},
+    {"sku": "D-BH1064", "cor": "PRATA", "qty": 300},
+    {"sku": "D-BH1064", "cor": "ROSÉ", "qty": 300},
+    {"sku": "D-BH1051", "cor": "AZUL", "qty": 300},
+    {"sku": "D-BH1051", "cor": "PRETO", "qty": 300},
+    {"sku": "D-BH1051", "cor": "ROSÉ", "qty": 300},
+    {"sku": "D-BH1051", "cor": "ROSA", "qty": 300},
+    {"sku": "D-BH1051", "cor": "VERMELHO", "qty": 300},
+    {"sku": "D-BH1051", "cor": "PRATA", "qty": 300},
+    {"sku": "D-BH1050", "cor": "AZUL", "qty": 300},
+    {"sku": "D-BH1050", "cor": "PRETO", "qty": 300},
+    {"sku": "D-BH1050", "cor": "ROSÉ", "qty": 300},
+    {"sku": "D-BH1050", "cor": "PRATA", "qty": 300},
+    {"sku": "AI07", "cor": "", "qty": 300},
+    {"sku": "AI03", "cor": "", "qty": 300},
+    {"sku": "D-BH8115", "cor": "", "qty": 300},
+    {"sku": "D-238G 180H", "cor": "", "qty": 300},
+    {"sku": "DS-14", "cor": "PRETO", "qty": 300},
+    {"sku": "KP-397", "cor": "VERMELHO", "qty": 300},
+    {"sku": "KP-FN632", "cor": "ROSA", "qty": 300},
+    {"sku": "KP-FN632", "cor": "VERDE", "qty": 300},
+    {"sku": "D-FT101", "cor": "", "qty": 300},
+    {"sku": "DRONE", "cor": "", "qty": 300},
+    {"sku": "RO802", "cor": "", "qty": 300}
   ];
 
   function inicializarItens() {
@@ -292,7 +404,7 @@
   }
 
   // ==========================================
-  // 2) NORMALIZAÇÃO DE TEXTO / COR
+  // 2) NORMALIZAÇÃO / CORES
   // ==========================================
   function normalizarTexto(t) {
     if (!t) return "";
@@ -346,7 +458,7 @@
   }
 
   // ==========================================
-  // 3) ADAPTAÇÃO DE SKU (planilha -> etiqueta PDF)
+  // 3) ADAPTAÇÃO SKU → PADRÃO DA ETIQUETA
   // ==========================================
   function adaptarSkuParaPdf(skuOriginal, corOriginal) {
     if (!skuOriginal) return "";
@@ -354,12 +466,8 @@
     const corCanon = normalizarCorCanon(corOriginal || "");
     const corPretty = prettyCor(corCanon);
 
-    if (skuUp === "D-3204") {
-      return "D-3204+MIC";
-    }
-    if (skuUp === "D-3210") {
-      return "D-3210 (SEM MICROFONE)";
-    }
+    if (skuUp === "D-3204") return "D-3204+MIC";
+    if (skuUp === "D-3210") return "D-3210 (SEM MICROFONE)";
     if (skuUp === "D-3158" || skuUp === "D-S3158") {
       const base = "D-S3158";
       if (corPretty) return base + " (" + corPretty + ")";
@@ -408,30 +516,18 @@
       const corText = corPretty || "PRETO";
       return "XKO01PRETO (" + corText + ")";
     }
-    if (skuUp === "CS-30") {
-      return "CS-30";
-    }
-    if (skuUp === "RO-832") {
-      return "RO-832";
-    }
-    if (skuUp === "PG-9023S") {
-      return "PG-9023S";
-    }
-    if (skuUp === "M-303") {
-      return "M-303";
-    }
-    if (skuUp === "FONE" || skuUp === "FONE LEBOSS") {
-      return "FONE LEBOSS";
-    }
+    if (skuUp === "CS-30") return "CS-30";
+    if (skuUp === "RO-832") return "RO-832";
+    if (skuUp === "PG-9023S") return "PG-9023S";
+    if (skuUp === "M-303") return "M-303";
+    if (skuUp === "FONE" || skuUp === "FONE LEBOSS") return "FONE LEBOSS";
 
-    if (corPretty) {
-      return skuUp + " (" + corPretty + ")";
-    }
+    if (corPretty) return skuUp + " (" + corPretty + ")";
     return skuUp;
   }
 
   // ==========================================
-  // 4) RENDERIZAÇÃO DE TABELA / RESUMO
+  // 4) TABELA / RESUMO
   // ==========================================
   function renderTabela() {
     tbodyItens.innerHTML = "";
@@ -456,6 +552,7 @@
       let status = "";
       let badgeClass = "";
       let rowClass = "";
+
       if (esperado === 0 && bip === 0) {
         status = "Sem quantidade";
       } else if (bip === 0 && esperado > 0) {
@@ -475,6 +572,7 @@
         badgeClass = "badge-alerta";
         rowClass = "alerta";
       }
+
       tr.className = rowClass;
 
       const tdIdx = document.createElement('td');
@@ -612,18 +710,19 @@
       e.preventDefault();
       const valor = campoBipagem.value.trim();
       if (valor) {
-        processarLinhaEtiqueta(valor);
+        processarLinhaEtiquetaUnica(valor);
         campoBipagem.value = "";
       }
     }
   });
 
-  // Recebe UMA linha tipo "1. CS-30 *3" ou "1. D-Y03LARANJA (LARANJA) *1"
-  function processarLinhaEtiqueta(linha) {
+  // Processa uma única linha "1. SKU *QTD"
+  function processarLinhaEtiquetaUnica(linha) {
     const regex = /^\s*\d+\.\s*(.+?)\s*\*([\d,\.]+)/;
     const m = linha.match(regex);
     if (!m) {
-      infoBipagem.textContent = `⚠ Não encontrei padrão "1. SKU *QTD" em: "${linha}"`;
+      infoBipagem.textContent =
+        `⚠ Não encontrei padrão "1. SKU *QTD" em: "${linha}"`;
       return;
     }
     const skuEtiqueta = m[1].trim();
@@ -633,12 +732,10 @@
       infoBipagem.textContent = `⚠ Quantidade inválida em: "${linha}"`;
       return;
     }
-
-    // Tenta casar SKU da etiqueta com SKU p/ bipagem
     registrarBipagemPorSkuEtiqueta(skuEtiqueta, qtd);
   }
 
-  // Aumenta bipado daquele SKU pela quantidade
+  // Incrementa bipado do item pela quantidade
   function registrarBipagemPorSkuEtiqueta(skuEtiqueta, quantidade) {
     const etiquetaNorm = normalizarTexto(skuEtiqueta);
 
@@ -684,7 +781,7 @@
       const gain = ctx.createGain();
       osc.type = "square";
       osc.frequency.value = 900;
-      gain.gain.value = 0.1;
+      gain.gain.value = 0.15;
       osc.connect(gain);
       gain.connect(ctx.destination);
       osc.start();
@@ -693,12 +790,12 @@
         ctx.close();
       }, 120);
     } catch (e) {
-      // se der erro, ignora (sem som)
+      // se der erro, ignora
     }
   }
 
   // ==========================================
-  // 7) LEITOR QR CODE (RASTREIO)
+  // 7) LEITOR QR (RASTREIO, DUPLICIDADE)
   // ==========================================
   let html5QrCode = null;
   let cameraQrAtiva = false;
@@ -712,17 +809,28 @@
       html5QrCode = new Html5Qrcode("reader");
       infoQr.textContent = "Abrindo câmera para ler QR...";
 
+      const config = {
+        fps: 10,
+        qrbox: { width: 220, height: 220 } // Área pequena para focar só no QR
+      };
+
       await html5QrCode.start(
         { facingMode: "environment" },
-        { fps: 10, qrbox: { width: 220, height: 220 } },
+        config,
         (decodedText, decodedResult) => {
-          // decodedText é, por ex, "BR2540..."
-          registrarQr(decodedText);
+          const texto = decodedText.trim();
+
+          // 1) Código de rastreio (BR...)
+          processarCodigoRastreio(texto);
+
+          // 2) Se algum dia o QR trouxer "1. CS-30 *1", isso também é processado:
+          processarLinhaEtiquetaUnica(texto);
         },
         (errorMessage) => {
-          // erros de leitura contínuos são normais, não mostra nada
+          // erros contínuos de leitura (ignorar)
         }
       );
+
       cameraQrAtiva = true;
       btnCameraQR.disabled = true;
       btnFecharQR.disabled = false;
@@ -748,16 +856,23 @@
     infoQr.textContent = "Câmera de QR desligada.";
   });
 
-  function registrarQr(texto) {
-    const t = texto.trim();
-    if (!t) return;
+  function processarCodigoRastreio(codigo) {
+    const cod = codigo.trim();
+    if (!cod) return;
 
-    if (!rastreios.includes(t)) {
-      rastreios.push(t);
-      tocarBeep();
+    const ehRastreio = /^BR[0-9A-Z]+$/i.test(cod);
+    if (!ehRastreio) return;
+
+    if (rastreiosLidos.has(cod)) {
+      infoQr.textContent = `⚠ Código de rastreio DUPLICADO: ${cod}`;
+      tocarSomErro();
+    } else {
+      rastreiosLidos.add(cod);
+      rastreios.push(cod);
+      infoQr.textContent = `✅ Código de rastreio registrado: ${cod}`;
+      atualizarListaRastreios();
+      tocarSomOk();
     }
-    infoQr.textContent = `Último QR lido: ${t}`;
-    atualizarListaRastreios();
   }
 
   function atualizarListaRastreios() {
@@ -770,16 +885,36 @@
       rastreios.map(r => `<span class="chip">${r}</span>`).join(" ");
   }
 
+  function tocarSomOk() {
+    tocarBeep(); // usa o mesmo beep de sucesso
+  }
+
+  function tocarSomErro() {
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "square";
+      osc.frequency.value = 300;
+      gain.gain.value = 0.2;
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      setTimeout(() => {
+        osc.stop();
+        ctx.close();
+      }, 200);
+    } catch (e) {}
+  }
+
   // ==========================================
-  // 8) OCR PARA ETIQUETA INTEIRA (FOTO)
+  // 8) OCR DA ETIQUETA INTEIRA
   // ==========================================
   const btnCameraOCR = document.getElementById('btnCameraOCR');
-  const inputOCR = document.getElementById('inputOCR');
-  const ocrPreview = document.getElementById('ocrPreview');
+  const inputOCR     = document.getElementById('inputOCR');
 
   btnCameraOCR.addEventListener('click', function() {
-    // dispara o input de arquivo (abre câmera no celular)
-    inputOCR.click();
+    inputOCR.click(); // abre câmera no celular
   });
 
   inputOCR.addEventListener('change', function(e) {
@@ -801,16 +936,11 @@
     try {
       const result = await Tesseract.recognize(
         dataUrl,
-        'por', // idioma pt
-        {
-          logger: m => {
-            // console.log(m);
-          }
-        }
+        'por', // português
+        { logger: m => {} }
       );
       const texto = result.data.text || "";
-      infoOcr.textContent = "OCR concluído. Processando linhas de SKU...";
-
+      infoOcr.textContent = "OCR concluído. Processando SKUs e quantidades...";
       processarTextoEtiquetaCompleta(texto);
     } catch (err) {
       console.error(err);
@@ -818,34 +948,31 @@
     }
   }
 
-  function processarTextoEtiquetaCompleta(texto) {
-    const linhas = texto.split(/\r?\n/);
+  // *** AQUI ESTÁ A MUDANÇA IMPORTANTE ***
+  // Em vez de olhar linha a linha, "amassa" todo o texto
+  // e busca padrões "1. ALGUMA COISA *QTD" mesmo com quebras no meio.
+  function processarTextoEtiquetaCompleta(textoBruto) {
+    // Substitui qualquer espaço/quebra de linha por um único espaço
+    const texto = textoBruto.replace(/\s+/g, ' ');
+    const regex = /(\d+)\.\s*([^*]+?)\s*\*([0-9]+)/g;
+
     let encontrados = 0;
-
-    for (const linha of linhas) {
-      const l = linha.trim();
-      if (!l) continue;
-
-      // tenta aplicar o mesmo padrão "1. SKU *QTD"
-      const regex = /^\s*\d+\.\s*(.+?)\s*\*([\d,\.]+)/;
-      const m = l.match(regex);
-      if (!m) continue;
-
+    let m;
+    while ((m = regex.exec(texto)) !== null) {
       encontrados++;
-      const skuEtiqueta = m[1].trim();
-      let qtd = m[2].replace(',', '.');
-      qtd = parseInt(qtd, 10) || 0;
+      const skuEtiqueta = m[2].trim();
+      const qtd = parseInt(m[3], 10) || 0;
       if (qtd <= 0) continue;
-
       registrarBipagemPorSkuEtiqueta(skuEtiqueta, qtd);
     }
 
     if (!encontrados) {
       infoOcr.textContent =
-        "OCR concluído, mas não encontrei nenhuma linha no formato '1. SKU *QTD'.";
+        "OCR concluído, mas não encontrei nenhum padrão '1. SKU *QTD'. " +
+        "Isso geralmente acontece quando o texto do SKU está muito sujo pelo OCR.";
     } else {
       infoOcr.textContent =
-        `OCR OK: encontrei ${encontrados} linha(s) de SKU no formato '1. SKU *QTD' e atualizei o estoque.`;
+        `OCR OK: encontrei ${encontrados} ocorrência(s) no formato '1. SKU *QTD' e atualizei o estoque.`;
     }
   }
 
