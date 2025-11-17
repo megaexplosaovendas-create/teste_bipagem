@@ -1,163 +1,762 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-<meta charset="UTF-8">
-<title>Bipagem com OCR – Estoque Inteligente</title>
-<meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta charset="UTF-8">
+  <title>Controle de Estoque por Bipagem (SKU + OCR)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
 
-<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 10px;
+    }
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    h1, h2 {
+      font-size: 20px;
+      margin: 10px 0;
+    }
+    p {
+      margin: 6px 0;
+      font-size: 14px;
+    }
+    input, button, textarea {
+      font-size: 14px;
+      padding: 6px 8px;
+      margin: 3px 0;
+    }
+    input[type="text"], input[type="number"], textarea {
+      width: 100%;
+      box-sizing: border-box;
+    }
+    textarea {
+      min-height: 80px;
+      resize: vertical;
+    }
+    button {
+      cursor: pointer;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 10px;
+      font-size: 13px;
+    }
+    th, td {
+      border: 1px solid #ccc;
+      padding: 4px;
+      text-align: left;
+    }
+    th {
+      background: #f0f0f0;
+      position: sticky;
+      top: 0;
+      z-index: 1;
+    }
+    .small {
+      font-size: 12px;
+      color: #666;
+    }
+    .row-actions button {
+      font-size: 12px;
+      padding: 3px 6px;
+    }
+    @media (min-width: 600px) {
+      .form-grid {
+        display: grid;
+        grid-template-columns: 2fr 2fr 1fr auto;
+        gap: 6px;
+        align-items: center;
+      }
+    }
+    /* Status cores */
+    .ok {
+      background: #e0ffe0;
+    }
+    .pendente {
+      background: #fffbe0;
+    }
+    .alerta {
+      background: #ffe0e0;
+    }
+    .badge {
+      display: inline-block;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 11px;
+    }
+    .badge-ok {
+      background: #c6f6c6;
+    }
+    .badge-pendente {
+      background: #fff2b3;
+    }
+    .badge-alerta {
+      background: #ffc4c4;
+    }
 
-<style>
-body {
-  font-family: Arial;
-  padding: 15px;
-}
-video {
-  width: 100%;
-  border: 1px solid #aaa;
-  border-radius: 6px;
-}
-#resultadoOCR {
-  margin-top: 10px;
-  padding: 10px;
-  background: #f0f0f0;
-  font-size: 14px;
-}
-table {
-  width: 100%;
-  border-collapse: collapse;
-  margin-top: 20px;
-}
-td, th {
-  border: 1px solid #ddd;
-  padding: 6px;
-}
-</style>
+    .flex-row {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .flex-row > * {
+      flex: 1 1 auto;
+    }
+  </style>
 </head>
 <body>
+<div class="container">
+  <h1>Controle de Estoque por Bipagem (SKU + OCR texto)</h1>
 
-<h2>Bipagem com Câmera (OCR)</h2>
+  <p class="small">
+    • Base de estoque vem da sua <b>Planilha SKU.xlsx</b> (exportada para CSV e colada abaixo).<br>
+    • Cada linha da etiqueta segue o formato: <code>1. D-Y03LARANJA (LARANJA) *1</code><br>
+    • O sistema pega apenas o que está <b>entre "1." e "*"</b> (SKU completo da etiqueta) e o que está <b>depois de "*"</b> (quantidade).<br>
+  </p>
 
-<button id="btnCamera">Ligar câmera e ler texto</button>
-<br><br>
+  <h2>1) CSV da planilha dentro do HTML</h2>
+  <p class="small">
+    Exporte <b>Planilha SKU.xlsx</b> como CSV (com cabeçalho: PRODUTO SKU, COR, CAIXAS, PEÇAS, TOTAL) e cole aqui:
+  </p>
+  <textarea id="csvPlanilhaArea" placeholder="Cole aqui o CSV da Planilha SKU..."></textarea>
+  <button id="btnCarregarCsv">Carregar base de estoque a partir do CSV</button>
 
-<video id="video" autoplay playsinline></video>
+  <div id="resumo" class="small" style="margin-top:6px;"></div>
 
-<div id="resultadoOCR">Nenhum texto detectado ainda...</div>
+  <h2>2) Adicionar / atualizar itens manualmente</h2>
+  <p class="small">
+    Se você adicionar um SKU + Cor que já existe, a quantidade (estoque esperado) será atualizada. O bipado continua.
+  </p>
 
-<hr>
+  <div class="form-grid">
+    <div>
+      <label>SKU (planilha)</label><br>
+      <input type="text" id="novoSku" placeholder="Ex: KP-7023, D-Y03, ON-FN632, TE-115...">
+    </div>
+    <div>
+      <label>Cor (planilha)</label><br>
+      <input type="text" id="novaCor" placeholder="Ex: PRETO, BCO, AZUL, ROSA, VERDE...">
+    </div>
+    <div>
+      <label>Quantidade em estoque</label><br>
+      <input type="number" id="novaQtd" value="0" min="0">
+    </div>
+    <div>
+      <button id="btnAdicionar">Adicionar / Atualizar</button>
+    </div>
+  </div>
 
-<h2>Estoque</h2>
-<table id="tabelaEstoque">
-<thead>
-<tr>
-  <th>SKU</th>
-  <th>Cor</th>
-  <th>Qtd</th>
-  <th>Ações</th>
-</tr>
-</thead>
-<tbody id="estoqueBody"></tbody>
-</table>
+  <h2>3) Itens carregados</h2>
+  <div style="max-height: 330px; overflow: auto;">
+    <table id="tabelaItens">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>SKU (planilha)</th>
+          <th>Cor (planilha)</th>
+          <th>SKU p/ bipagem (padrão etiqueta)</th>
+          <th>Qtd esperada</th>
+          <th>Bipado</th>
+          <th>Status</th>
+          <th>Ações</th>
+        </tr>
+      </thead>
+      <tbody id="tbodyItens"></tbody>
+    </table>
+  </div>
 
-<h3>Adicionar SKU</h3>
-<input id="novoSku" placeholder="Ex: D-3204">
-<input id="novaCor" placeholder="Cor">
-<input id="novaQtd" type="number" value="300">
-<button onclick="adicionarManual()">Adicionar</button>
+  <h2>4) Bipagem (texto / OCR / leitor)</h2>
+  <p class="small">
+    Aqui você tem 3 formas de bipar:<br>
+    1) Colar o texto reconhecido por OCR de uma etiqueta inteira e clicar em <b>Processar texto OCR</b>.<br>
+    2) Digitar/colar um único código (ex: <code>TE-124 (Iluminação RGB Gamer) *3</code> ou só <code>D-Y03LARANJA (LARANJA)</code>) e apertar Enter.<br>
+    3) Se seu leitor de código de barras enviar texto para o campo abaixo, ele também funciona (desde que o texto tenha o SKU e opcionalmente <code>*QTD</code>).
+  </p>
+
+  <label>Texto OCR / etiqueta completa</label>
+  <textarea id="campoOcr" placeholder="Cole aqui o texto lido da etiqueta (pode ter várias linhas '1. SKU *QTD')"></textarea>
+  <button id="btnProcessarOcr">Processar texto OCR</button>
+
+  <div style="margin-top:8px;">
+    <label>Leitura unitária (campo focado para leitor / teclado)</label>
+    <input id="campoBipagem" placeholder='Ex: "D-Y03LARANJA (LARANJA) *2" ou só "D-Y03LARANJA (LARANJA)"'>
+  </div>
+
+  <div id="infoBipagem" class="small" style="margin-top:4px;"></div>
+</div>
 
 <script>
-// =====================
-// ESTOQUE (mock inicial)
-// =====================
-let estoque = [
-  { sku: "D-3204+MIC", cor: "", qtd: 300 },
-  { sku: "TE-115 (Tecnologia Anti-Ghost)", cor:"", qtd:300 },
-  { sku: "KP-7023BRANCO (BRANCO)", cor:"BRANCO", qtd:300 },
-  { sku: "D-Y03CINZA (CINZA)", cor:"CINZA", qtd:300 }
-];
+  // =========================
+  // 1) Estrutura de dados
+  // =========================
 
-function atualizarTabela() {
-  const body = document.getElementById("estoqueBody");
-  body.innerHTML = "";
-  estoque.forEach((p, i)=>{
-    let tr = document.createElement("tr");
-    tr.innerHTML = `
-      <td>${p.sku}</td>
-      <td>${p.cor}</td>
-      <td>${p.qtd}</td>
-      <td><button onclick="remover(${i})">Remover</button></td>
-    `;
-    body.appendChild(tr);
-  });
-}
-atualizarTabela();
+  let itens = [];
+  let proximoId = 1;
 
-function adicionarManual(){
-  const s = document.getElementById("novoSku").value.trim();
-  const c = document.getElementById("novaCor").value.trim();
-  const q = parseInt(document.getElementById("novaQtd").value);
-  estoque.push({ sku:s, cor:c, qtd:q });
-  atualizarTabela();
-}
+  const tbodyItens   = document.getElementById('tbodyItens');
+  const resumoDiv    = document.getElementById('resumo');
+  const campoOcr     = document.getElementById('campoOcr');
+  const campoBipagem = document.getElementById('campoBipagem');
+  const infoBipagem  = document.getElementById('infoBipagem');
 
-function remover(i){
-  estoque.splice(i,1);
-  atualizarTabela();
-}
+  // =========================
+  // 2) Utilitários de texto
+  // =========================
 
-// =====================
-// CÂMERA + OCR
-// =====================
-const video = document.getElementById("video");
-
-document.getElementById("btnCamera").onclick = async () => {
-  const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }});
-  video.srcObject = stream;
-
-  processarOCR();
-};
-
-async function processarOCR(){
-  setInterval(async ()=>{
-    const canvas = document.createElement("canvas");
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    canvas.getContext("2d").drawImage(video, 0, 0);
-
-    const dataURL = canvas.toDataURL("image/png");
-    const result = await Tesseract.recognize(dataURL, "por");
-
-    let texto = result.data.text;
-    document.getElementById("resultadoOCR").innerText = texto;
-
-    // Captura SKU tipo: D-3204+MIC *1
-    const regex = /([A-Z0-9\-+() ]+)\s*\*([0-9]+)/i;
-    const match = texto.match(regex);
-
-    if(match){
-      const skuLido = match[1].trim();
-      const qtdLida = parseInt(match[2]);
-
-      biparProduto(skuLido, qtdLida);
-    }
-  }, 2500);
-}
-
-function biparProduto(sku, qtd){
-  let item = estoque.find(p=>p.sku.toUpperCase()===sku.toUpperCase());
-  if(item){
-    item.qtd -= qtd;
-    if(item.qtd < 0) item.qtd = 0;
-    atualizarTabela();
-    document.getElementById("resultadoOCR").innerText =
-      `✔ SKU reconhecido: ${sku}\n✔ Quantidade: ${qtd}\n✔ Estoque atualizado!`;
-  } else {
-    document.getElementById("resultadoOCR").innerText =
-      `⚠ SKU não encontrado: ${sku}`;
+  function normalizarTexto(txt) {
+    if (!txt) return "";
+    return txt.toString().trim().toUpperCase();
   }
-}
-</script>
 
+  function normalizarCorCanon(cor) {
+    if (!cor) return "";
+    let c = cor.toString().trim().toUpperCase();
+
+    // Remover acentos
+    c = c
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "");
+
+    c = c.replace(/\s+/g, " ");
+
+    const mapa = {
+      "BCO": "BRANCO",
+      "BRAN": "BRANCO",
+      "BRANCO": "BRANCO",
+      "PRETA": "PRETO",
+      "PRETO": "PRETO",
+      "PT": "PRETO",
+      "PTO": "PRETO",
+      "AZUL": "AZUL",
+      "VERDE": "VERDE",
+      "VD": "VERDE",
+      "ROSA": "ROSA",
+      "VERM": "VERMELHO",
+      "VERMELHO": "VERMELHO",
+      "LARANJA": "LARANJA",
+      "CINZA": "CINZA",
+      "MARROM": "MARROM",
+      "LILAS": "LILAS",
+      "ROXO": "ROXO",
+      "ROSE": "ROSE",
+      "ROSEGOLD": "ROSE"
+    };
+
+    const semEspaco = c.replace(/\s+/g, "");
+    if (mapa[semEspaco]) return mapa[semEspaco];
+    if (mapa[c]) return mapa[c];
+
+    return c;
+  }
+
+  function prettyCor(corCanon) {
+    if (!corCanon) return "";
+    return corCanon.toUpperCase();
+  }
+
+  function normalizarChaveEtiqueta(txt) {
+    if (!txt) return "";
+    let t = txt.toString().toUpperCase();
+    t = t.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    t = t.replace(/\s+/g, " ");
+    return t.trim();
+  }
+
+  // =========================
+  // 3) Adaptar SKU -> padrão etiqueta PDF
+  // =========================
+
+  function adaptarSkuParaPdf(skuOriginal, corOriginal) {
+    if (!skuOriginal) return "";
+    const skuUp = skuOriginal.toString().trim().toUpperCase();
+    const corCanon = normalizarCorCanon(corOriginal || "");
+    const corPretty = prettyCor(corCanon);
+
+    // Casos especiais (igual código anterior)
+    if (skuUp === "D-3204") {
+      return "D-3204+MIC";
+    }
+
+    if (skuUp === "D-3210") {
+      return "D-3210 (SEM MICROFONE)";
+    }
+
+    if (skuUp === "D-3158" || skuUp === "D-S3158") {
+      const base = "D-S3158";
+      if (corPretty) return base + " (" + corPretty + ")";
+      return base;
+    }
+
+    if (skuUp === "D-Y03") {
+      if (corCanon) return "D-Y03" + corCanon + " (" + corPretty + ")";
+      return "D-Y03";
+    }
+
+    if (skuUp === "D-Y04" || skuUp === "D-Y05" || skuUp === "D-Y04/05") {
+      let base = skuUp;
+      if (corPretty) return base + " (" + corPretty + ")";
+      return base;
+    }
+
+    if (skuUp === "KP-7023") {
+      if (corCanon) return "KP-7023" + corCanon + " (" + corPretty + ")";
+      return "KP-7023";
+    }
+
+    if (skuUp === "ON-FN632" || skuUp === "KP-FN632") {
+      if (corCanon) return "ON-FN632" + corCanon + " (" + corPretty + ")";
+      return "ON-FN632";
+    }
+
+    if (skuUp === "KP-TE115" || skuUp === "TE-115") {
+      return "TE-115 (Tecnologia Anti-Ghost)";
+    }
+
+    if (skuUp === "KP-TE124" || skuUp === "TE-124") {
+      return "TE-124 (Iluminação RGB Gamer)";
+    }
+
+    if (skuUp === "KP-TE112") {
+      if (corCanon) {
+        return "KP-TE112" + corCanon + " (" + corPretty + ")";
+      }
+      return "KP-TE112";
+    }
+
+    if (skuUp === "KP-LB521" || skuUp === "LB-521") {
+      return "LB-521";
+    }
+
+    if (skuUp === "KP-PN899" || skuUp === "PN-899") {
+      return "PN-899PD";
+    }
+
+    if (skuUp === "PROT. AURICULAR" || skuUp === "PROT AURICULAR") {
+      return "PROTETOR AURICULAR";
+    }
+
+    if (skuUp === "D-MN001" || skuUp === "MONITOR D-MN001") {
+      return "MONITOR D-MN001";
+    }
+
+    if (skuUp === "XKO01PRETO") {
+      const corText = corPretty || "PRETO";
+      return "XKO01PRETO (" + corText + ")";
+    }
+
+    if (skuUp === "CS-30") {
+      return "CS-30";
+    }
+
+    if (skuUp === "RO-832") {
+      return "RO-832";
+    }
+
+    if (skuUp === "PG-9023S") {
+      return "PG-9023S";
+    }
+
+    if (skuUp === "M-303") {
+      return "M-303";
+    }
+
+    if (skuUp === "FONE" || skuUp === "FONE LEBOSS") {
+      return "FONE LEBOSS";
+    }
+
+    // Padrão cor: SKU (COR)
+    if (corPretty) {
+      return skuUp + " (" + corPretty + ")";
+    }
+
+    return skuUp;
+  }
+
+  // =========================
+  // 4) Renderização da tabela
+  // =========================
+
+  function renderTabela() {
+    tbodyItens.innerHTML = "";
+
+    const ordenados = [...itens].sort((a, b) => {
+      const sA = a.sku.toUpperCase();
+      const sB = b.sku.toUpperCase();
+      if (sA < sB) return -1;
+      if (sA > sB) return 1;
+      const cA = (a.cor || "").toUpperCase();
+      const cB = (b.cor || "").toUpperCase();
+      if (cA < cB) return -1;
+      if (cA > cB) return 1;
+      return 0;
+    });
+
+    ordenados.forEach((item, index) => {
+      const tr = document.createElement('tr');
+
+      const bip = item.bipado || 0;
+      const esperado = Number(item.qty) || 0;
+
+      let status = "";
+      let badgeClass = "";
+      let rowClass = "";
+
+      if (esperado === 0 && bip === 0) {
+        status = "Sem quantidade";
+      } else if (bip === 0 && esperado > 0) {
+        status = "Ainda não bipado";
+        badgeClass = "badge-pendente";
+        rowClass = "pendente";
+      } else if (bip < esperado) {
+        status = `Pendente (${bip}/${esperado})`;
+        badgeClass = "badge-pendente";
+        rowClass = "pendente";
+      } else if (bip === esperado) {
+        status = "OK (completo)";
+        badgeClass = "badge-ok";
+        rowClass = "ok";
+      } else if (bip > esperado) {
+        status = `Excesso (${bip}/${esperado})`;
+        badgeClass = "badge-alerta";
+        rowClass = "alerta";
+      }
+
+      tr.className = rowClass;
+
+      const tdIdx = document.createElement('td');
+      tdIdx.textContent = index + 1;
+      tr.appendChild(tdIdx);
+
+      const tdSku = document.createElement('td');
+      tdSku.textContent = item.sku;
+      tr.appendChild(tdSku);
+
+      const tdCor = document.createElement('td');
+      tdCor.textContent = item.cor || "-";
+      tr.appendChild(tdCor);
+
+      const tdSkuPdf = document.createElement('td');
+      tdSkuPdf.textContent = adaptarSkuParaPdf(item.sku, item.cor);
+      tr.appendChild(tdSkuPdf);
+
+      const tdQtd = document.createElement('td');
+      const inputQtd = document.createElement('input');
+      inputQtd.type = "number";
+      inputQtd.min = "0";
+      inputQtd.value = item.qty;
+      inputQtd.style.width = "80px";
+      inputQtd.addEventListener('change', () => {
+        item.qty = Number(inputQtd.value) || 0;
+        renderTabela();
+      });
+      tdQtd.appendChild(inputQtd);
+      tr.appendChild(tdQtd);
+
+      const tdBip = document.createElement('td');
+      tdBip.textContent = bip;
+      tr.appendChild(tdBip);
+
+      const tdStatus = document.createElement('td');
+      if (status) {
+        const span = document.createElement('span');
+        span.textContent = status;
+        span.className = "badge " + badgeClass;
+        tdStatus.appendChild(span);
+      }
+      tr.appendChild(tdStatus);
+
+      const tdAcoes = document.createElement('td');
+      tdAcoes.className = "row-actions";
+      const btnRemover = document.createElement('button');
+      btnRemover.textContent = "Remover";
+      btnRemover.addEventListener('click', () => {
+        removerItemPorId(item.id);
+      });
+      tdAcoes.appendChild(btnRemover);
+      tr.appendChild(tdAcoes);
+
+      tbodyItens.appendChild(tr);
+    });
+
+    atualizarResumo();
+  }
+
+  function atualizarResumo() {
+    const totalItens = itens.length;
+    const totalQtd = itens.reduce((s, it) => s + (Number(it.qty) || 0), 0);
+    const totalBip = itens.reduce((s, it) => s + (Number(it.bipado) || 0), 0);
+
+    resumoDiv.innerHTML =
+      `<b>Variações (linhas):</b> ${totalItens}<br>` +
+      `<b>Peças em estoque (esperado):</b> ${totalQtd}<br>` +
+      `<b>Peças bipadas (somando tudo):</b> ${totalBip}`;
+  }
+
+  // =========================
+  // 5) Adicionar / atualizar / remover
+  // =========================
+
+  document.getElementById('btnAdicionar').addEventListener('click', function() {
+    const sku = document.getElementById('novoSku').value.trim();
+    const cor = document.getElementById('novaCor').value.trim();
+    const qtd = Number(document.getElementById('novaQtd').value) || 0;
+
+    if (!sku) {
+      alert("Informe o SKU.");
+      return;
+    }
+
+    adicionarOuAtualizarItem(sku, cor, qtd, true);
+  });
+
+  function adicionarOuAtualizarItem(sku, cor, qty, renderDepois) {
+    const skuNorm = normalizarTexto(sku);
+    const corNorm = normalizarTexto(cor);
+
+    let itemExistente = itens.find(it =>
+      normalizarTexto(it.sku) === skuNorm &&
+      normalizarTexto(it.cor) === corNorm
+    );
+
+    if (itemExistente) {
+      itemExistente.qty = qty;
+    } else {
+      itens.push({
+        id: proximoId++,
+        sku: sku,
+        cor: cor,
+        qty: qty,
+        bipado: 0
+      });
+    }
+
+    if (renderDepois) {
+      renderTabela();
+      document.getElementById('novoSku').value = "";
+      document.getElementById('novaCor').value = "";
+      document.getElementById('novaQtd').value = 0;
+    }
+  }
+
+  function removerItemPorId(id) {
+    itens = itens.filter(it => it.id !== id);
+    renderTabela();
+  }
+
+  // =========================
+  // 6) Carregar planilha (CSV colado)
+  // =========================
+
+  document.getElementById('btnCarregarCsv').addEventListener('click', () => {
+    const csv = document.getElementById('csvPlanilhaArea').value;
+    if (!csv.trim()) {
+      alert("Cole primeiro o conteúdo do CSV da planilha.");
+      return;
+    }
+    carregarItensDoCsv(csv);
+  });
+
+  function carregarItensDoCsv(csv) {
+    itens = [];
+    proximoId = 1;
+
+    const linhas = csv.split(/\r?\n/);
+    if (linhas.length <= 1) {
+      alert("CSV parece vazio ou sem cabeçalho.");
+      return;
+    }
+
+    // Assumindo cabeçalho: PRODUTO SKU;COR;CAIXAS;PEÇAS;TOTAL
+    const header = linhas[0].split(/;|,/).map(h => h.trim().toUpperCase());
+
+    const idxSku   = header.findIndex(h => h.includes("PRODUTO"));
+    const idxCor   = header.findIndex(h => h === "COR");
+    const idxPecas = header.findIndex(h => h.includes("PEÇA"));
+    const idxTotal = header.findIndex(h => h === "TOTAL");
+
+    if (idxSku === -1) {
+      alert("Não encontrei coluna 'PRODUTO SKU' no cabeçalho do CSV.");
+      return;
+    }
+
+    for (let i = 1; i < linhas.length; i++) {
+      const linha = linhas[i].trim();
+      if (!linha) continue;
+
+      const cols = linha.split(/;|,/);
+
+      const sku = (cols[idxSku] || "").trim();
+      if (!sku || sku.toUpperCase() === "PRODUTO SKU") continue;
+
+      const cor = (idxCor >= 0 && cols[idxCor]) ? cols[idxCor].trim() : "";
+      let qty = 0;
+
+      if (idxTotal >= 0 && cols[idxTotal]) {
+        qty = parseInt(cols[idxTotal], 10) || 0;
+      } else if (idxPecas >= 0 && cols[idxPecas]) {
+        qty = parseInt(cols[idxPecas], 10) || 0;
+      }
+
+      itens.push({
+        id: proximoId++,
+        sku: sku,
+        cor: cor,
+        qty: qty,
+        bipado: 0
+      });
+    }
+
+    renderTabela();
+  }
+
+  // =========================
+  // 7) Bipagem (campo + OCR)
+  // =========================
+
+  // Campo unitário (leitor / teclado)
+  campoBipagem.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const valor = campoBipagem.value.trim();
+      if (valor) {
+        registrarBipagem(valor); // ele mesmo tenta achar *QTD
+        campoBipagem.value = "";
+      }
+    }
+  });
+
+  // Processar texto OCR com várias linhas "1. SKU *QTD"
+  document.getElementById('btnProcessarOcr').addEventListener('click', () => {
+    const texto = campoOcr.value;
+    if (!texto.trim()) {
+      alert("Cole o texto lido da etiqueta (OCR) antes de processar.");
+      return;
+    }
+    processarTextoEtiquetas(texto);
+  });
+
+  function processarTextoEtiquetas(textoBruto) {
+    const linhas = textoBruto.split(/\r?\n/);
+    let encontrados = 0;
+    let erros = 0;
+
+    for (const linha of linhas) {
+      const l = linha.trim();
+      if (!l) continue;
+
+      // Padrão: "1. D-Y03LARANJA (LARANJA) *1"
+      const m = l.match(/^\s*\d+\.\s*(.+?)\s*\*([\d]+)\s*$/);
+      if (m) {
+        const skuLinha = m[1].trim();        // D-Y03LARANJA (LARANJA)
+        const qtdLinha = parseInt(m[2], 10); // 1, 2, 3...
+        if (qtdLinha > 0) {
+          const ok = registrarBipagem(skuLinha, qtdLinha);
+          if (ok) {
+            encontrados++;
+          } else {
+            erros++;
+          }
+        }
+      }
+    }
+
+    if (encontrados > 0) {
+      infoBipagem.textContent =
+        `Processadas ${encontrados} linhas com SKU + quantidade do texto OCR.` +
+        (erros ? ` (Linhas sem SKU conhecido: ${erros})` : "");
+    } else {
+      infoBipagem.textContent =
+        "Nenhuma linha no formato \"1. SKU *QTD\" foi encontrada no texto OCR.";
+    }
+  }
+
+  /**
+   * Registra bipagem.
+   * textoCodigo pode ser:
+   *  - só o SKU da etiqueta: "D-Y03LARANJA (LARANJA)"
+   *  - SKU + *QTD:          "D-Y03LARANJA (LARANJA) *3"
+   * qtdExtra (opcional) é usado quando já foi extraído pelo OCR (ex: *3)
+   */
+  function registrarBipagem(textoCodigo, qtdExtra) {
+    let cod = textoCodigo.trim();
+    if (!cod) return false;
+
+    let qtd = qtdExtra || 0;
+
+    // Se vier algo tipo "D-Y03LARANJA (LARANJA) *3"
+    const mQtd = cod.match(/^(.*)\*(\d+)\s*$/);
+    if (mQtd) {
+      cod = mQtd[1].trim();
+      const q = parseInt(mQtd[2], 10);
+      if (!qtd) qtd = q;
+    }
+
+    if (!qtd || qtd <= 0) {
+      qtd = 1; // padrão: 1 unidade
+    }
+
+    const chaveLida = normalizarChaveEtiqueta(cod);
+
+    const candidatos = [];
+
+    for (const item of itens) {
+      const skuPdf = adaptarSkuParaPdf(item.sku, item.cor);
+      const chavePdf = normalizarChaveEtiqueta(skuPdf);
+      const chaveSku = normalizarChaveEtiqueta(item.sku);
+
+      if (chaveLida === chavePdf || chaveLida === chaveSku) {
+        candidatos.push(item);
+      }
+    }
+
+    if (candidatos.length === 0) {
+      infoBipagem.textContent = `⚠ SKU/código não encontrado na base: "${textoCodigo}"`;
+      return false;
+    }
+    if (candidatos.length > 1) {
+      infoBipagem.textContent =
+        `⚠ Código "${textoCodigo}" corresponde a mais de um item (ambíguo). Refine o SKU.`;
+      return false;
+    }
+
+    const item = candidatos[0];
+    item.bipado = (item.bipado || 0) + qtd;
+
+    const esperado = Number(item.qty) || 0;
+    const bip = item.bipado;
+
+    let msg = "";
+    if (bip > esperado && esperado > 0) {
+      msg = `ALERTA: "${adaptarSkuParaPdf(item.sku, item.cor)}" bipado ${bip}x, ` +
+            `mas quantidade esperada é ${esperado}. Pode ser produto duplicado.`;
+    } else if (bip === esperado && esperado > 0) {
+      msg = `OK: "${adaptarSkuParaPdf(item.sku, item.cor)}" atingiu a quantidade completa (${bip}/${esperado}).`;
+    } else {
+      msg = `PENDENTE: "${adaptarSkuParaPdf(item.sku, item.cor)}" bipado ${bip}/${esperado}.`;
+    }
+
+    infoBipagem.textContent = msg;
+    renderTabela();
+    return true;
+  }
+
+  // =========================
+  // 8) Inicialização
+  // =========================
+
+  // Começa com lista vazia; você carrega do CSV ou adiciona manualmente
+  itens = [];
+  renderTabela();
+
+  // ---- Integração com OCR externo ----
+  // Se seu script de OCR conseguir um texto reconhecido da câmera,
+  // você pode chamar diretamente no console ou no código:
+  //   processarTextoEtiquetas(textoReconhecido);
+  // Isso vai alimentar o controle de bipagem daqui.
+</script>
 </body>
 </html>
