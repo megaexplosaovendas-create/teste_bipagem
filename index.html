@@ -1,901 +1,163 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-  <meta charset="UTF-8">
-  <title>Controle de Estoque por Bipagem (Planilha embutida + Câmera)</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <style>
-    body {
-      font-family: Arial, sans-serif;
-      margin: 10px;
-    }
-    .container {
-      max-width: 1200px;
-      margin: 0 auto;
-    }
-    h1, h2 {
-      font-size: 20px;
-      margin: 10px 0;
-    }
-    p {
-      margin: 6px 0;
-      font-size: 14px;
-    }
-    input, button {
-      font-size: 14px;
-      padding: 6px 8px;
-      margin: 3px 0;
-    }
-    input[type="text"], input[type="number"] {
-      width: 100%;
-      box-sizing: border-box;
-    }
-    button {
-      cursor: pointer;
-    }
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      margin-top: 10px;
-      font-size: 13px;
-    }
-    th, td {
-      border: 1px solid #ccc;
-      padding: 4px;
-      text-align: left;
-    }
-    th {
-      background: #f0f0f0;
-      position: sticky;
-      top: 0;
-      z-index: 1;
-    }
-    .small {
-      font-size: 12px;
-      color: #666;
-    }
-    .row-actions button {
-      font-size: 12px;
-      padding: 3px 6px;
-    }
-    @media (min-width: 600px) {
-      .form-grid {
-        display: grid;
-        grid-template-columns: 2fr 2fr 1fr auto;
-        gap: 6px;
-        align-items: center;
-      }
-    }
-    .toolbar {
-      display: flex;
-      gap: 6px;
-      flex-wrap: wrap;
-      align-items: center;
-      margin: 6px 0;
-    }
-    /* Status de bipagem */
-    .ok {
-      background: #e0ffe0;
-    }
-    .pendente {
-      background: #fffbe0;
-    }
-    .alerta {
-      background: #ffe0e0;
-    }
-    .badge {
-      display: inline-block;
-      padding: 2px 6px;
-      border-radius: 4px;
-      font-size: 11px;
-    }
-    .badge-ok {
-      background: #c6f6c6;
-    }
-    .badge-pendente {
-      background: #fff2b3;
-    }
-    .badge-alerta {
-      background: #ffc4c4;
-    }
-  </style>
+<meta charset="UTF-8">
+<title>Bipagem com OCR – Estoque Inteligente</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+
+<style>
+body {
+  font-family: Arial;
+  padding: 15px;
+}
+video {
+  width: 100%;
+  border: 1px solid #aaa;
+  border-radius: 6px;
+}
+#resultadoOCR {
+  margin-top: 10px;
+  padding: 10px;
+  background: #f0f0f0;
+  font-size: 14px;
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 20px;
+}
+td, th {
+  border: 1px solid #ddd;
+  padding: 6px;
+}
+</style>
 </head>
 <body>
-<div class="container">
-  <h1>Controle de Estoque (300 por item) - Planilha embutida + Bipagem + Câmera</h1>
 
-  <p class="small">
-    • Estoque inicial: todos os SKUs + cores da sua planilha, com quantidade padrão = 300 (teste).<br>
-    • A coluna <b>“SKU p/ bipagem (padrão PDF)”</b> tenta seguir exatamente o padrão que aparece no DANFE
-      (<code>D-Y03LARANJA (LARANJA)</code>, <code>KP-7023PRETO (PRETO)</code>, <code>D-BH1064PRETO (PRETO)</code>, etc.).<br>
-    • Na bipagem, o sistema lê o texto do código (teclado/leitor/câmera), extrai o SKU + cor e a quantidade
-      depois de <code>*</code> e soma no “Bipado”.
-  </p>
+<h2>Bipagem com Câmera (OCR)</h2>
 
-  <h2>1) Adicionar / atualizar itens manualmente</h2>
-  <p class="small">
-    Se você adicionar um SKU + Cor que já existe, a quantidade será atualizada (o “bipado” desse item continua).
-  </p>
+<button id="btnCamera">Ligar câmera e ler texto</button>
+<br><br>
 
-  <div class="form-grid">
-    <div>
-      <label>SKU (planilha)</label><br>
-      <input type="text" id="novoSku" placeholder="Ex: KP-7023, D-Y03, ON-FN632, TE-115...">
-    </div>
-    <div>
-      <label>Cor (planilha)</label><br>
-      <input type="text" id="novaCor" placeholder="Ex: PRETO, BCO, AZUL, ROSA, VERDE...">
-    </div>
-    <div>
-      <label>Quantidade</label><br>
-      <input type="number" id="novaQtd" value="300" min="0">
-    </div>
-    <div>
-      <button id="btnAdicionar">Adicionar / Atualizar</button>
-    </div>
-  </div>
+<video id="video" autoplay playsinline></video>
 
-  <div id="resumo"></div>
+<div id="resultadoOCR">Nenhum texto detectado ainda...</div>
 
-  <h2>2) Itens em estoque (embutidos)</h2>
-  <div style="max-height: 330px; overflow: auto;">
-    <table id="tabelaItens">
-      <thead>
-        <tr>
-          <th>#</th>
-          <th>SKU (planilha)</th>
-          <th>Cor (planilha)</th>
-          <th>SKU p/ bipagem (padrão PDF)</th>
-          <th>Qtd esperada</th>
-          <th>Bipado</th>
-          <th>Status</th>
-          <th>Ações</th>
-        </tr>
-      </thead>
-      <tbody id="tbodyItens"></tbody>
-    </table>
-  </div>
+<hr>
 
-  <h2>3) Bipagem (leitor de código de barras / QR + câmera)</h2>
-  <p class="small">
-    • Use um código de barras ou QR <b>interno</b> que contenha o texto do SKU no padrão da etiqueta,
-      por exemplo:<br>
-      <code>1. D-Y03LARANJA (LARANJA) *1</code><br>
-      <code>1. KP-7023PRETO (PRETO) *3</code><br>
-    • Os códigos padrão de rastreio/NF das etiquetas (BR..., UP2F..., 3525...) não trazem SKU +
-      quantidade, então não servem para esse controle de estoque.<br><br>
-    • O sistema vai:<br>
-      – Ler o texto (teclado/leitor ou câmera via html5-qrcode);<br>
-      – Extrair a quantidade após o <code>*</code> (funciona com <code>*1</code>, <code>( *2 )</code> etc.);<br>
-      – Localizar o SKU correspondente e somar essa quantidade no “Bipado”.
-  </p>
+<h2>Estoque</h2>
+<table id="tabelaEstoque">
+<thead>
+<tr>
+  <th>SKU</th>
+  <th>Cor</th>
+  <th>Qtd</th>
+  <th>Ações</th>
+</tr>
+</thead>
+<tbody id="estoqueBody"></tbody>
+</table>
 
-  <div class="toolbar">
-    <button id="btnCamera">Bipar com câmera (html5-qrcode)</button>
-    <input id="campoBipagem" placeholder="Ou bipe/cole o código aqui e tecle Enter...">
-  </div>
-  <div id="infoBipagem" class="small"></div>
-
-  <div id="cameraContainer" style="margin-top:10px; display:none;">
-    <div id="reader" style="width:260px; max-width:100%;"></div>
-    <button id="btnFecharCamera">Fechar câmera</button>
-  </div>
-</div>
-
-<!-- Biblioteca html5-qrcode (câmera) -->
-<script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+<h3>Adicionar SKU</h3>
+<input id="novoSku" placeholder="Ex: D-3204">
+<input id="novaCor" placeholder="Cor">
+<input id="novaQtd" type="number" value="300">
+<button onclick="adicionarManual()">Adicionar</button>
 
 <script>
-  // =========================
-  // 1) Banco de dados embutido (Planilha SKU)
-  // =========================
-
-  const itensBasePlanilha = [
-    {"sku": "KP-RO826", "cor": "", "qty": 300},
-    {"sku": "KP-RO852", "cor": "", "qty": 300},
-    {"sku": "KP-RO832", "cor": "", "qty": 300},
-    {"sku": "KP-548B", "cor": "", "qty": 300},
-    {"sku": "KP-TC07", "cor": "", "qty": 300},
-    {"sku": "KP-LB521", "cor": "", "qty": 300},
-    {"sku": "KP-TE119", "cor": "", "qty": 300},
-    {"sku": "KP-517", "cor": "", "qty": 300},
-    {"sku": "KP-7023", "cor": "PRETO", "qty": 300},
-    {"sku": "KP-7023", "cor": "BCO", "qty": 300},
-    {"sku": "KP-7023", "cor": "AZUL", "qty": 300},
-    {"sku": "KP-MU003", "cor": "", "qty": 300},
-    {"sku": "KP-RO833", "cor": "", "qty": 300},
-    {"sku": "KP-MU014", "cor": "", "qty": 300},
-    {"sku": "KP-TE112", "cor": "PRETO", "qty": 300},
-    {"sku": "KP-TE112", "cor": "VERDE", "qty": 300},
-    {"sku": "KP-TE112", "cor": "ROSA", "qty": 300},
-    {"sku": "KP-5816", "cor": "", "qty": 300},
-    {"sku": "KP-CA127", "cor": "", "qty": 300},
-    {"sku": "KP-ONFN639", "cor": "", "qty": 300},
-    {"sku": "KP-ONF90", "cor": "", "qty": 300},
-    {"sku": "KP-2064", "cor": "", "qty": 300},
-    {"sku": "KP-TC19", "cor": "", "qty": 300},
-    {"sku": "KP-TE115", "cor": "", "qty": 300},
-    {"sku": "KP-TE124", "cor": "", "qty": 300},
-    {"sku": "KP-6040", "cor": "", "qty": 300},
-    {"sku": "KP-IM600", "cor": "", "qty": 300},
-    {"sku": "KP-LBFN606", "cor": "", "qty": 300},
-    {"sku": "KP-RO802", "cor": "", "qty": 300},
-    {"sku": "KP-PN899", "cor": "PRETO", "qty": 300},
-    {"sku": "KP-PN899", "cor": "BRANCO", "qty": 300},
-
-    {"sku": "D-3204", "cor": "", "qty": 300},
-    {"sku": "D-Y03", "cor": "AZUL", "qty": 300},
-    {"sku": "D-Y03", "cor": "VERM", "qty": 300},
-    {"sku": "D-Y03", "cor": "LARANJA", "qty": 300},
-    {"sku": "D-Y03", "cor": "PRATA", "qty": 300},
-    {"sku": "D-Y03", "cor": "PRETA", "qty": 300},
-    {"sku": "D-3210", "cor": "", "qty": 300},
-    {"sku": "D-F12", "cor": "", "qty": 300},
-    {"sku": "D-6201", "cor": "", "qty": 300},
-    {"sku": "D-P13", "cor": "", "qty": 300},
-    {"sku": "D-G105", "cor": "", "qty": 300},
-    {"sku": "D-3142", "cor": "", "qty": 300},
-    {"sku": "D-F8", "cor": "", "qty": 300},
-    {"sku": "D-F13", "cor": "", "qty": 300},
-    {"sku": "D-F11", "cor": "", "qty": 300},
-    {"sku": "D-F14", "cor": "", "qty": 300},
-    {"sku": "D-S14", "cor": "", "qty": 300},
-    {"sku": "D-S4145", "cor": "", "qty": 300},
-    {"sku": "D-EM07", "cor": "", "qty": 300},
-    {"sku": "D-3205", "cor": "", "qty": 300},
-    {"sku": "D-4235", "cor": "", "qty": 300},
-    {"sku": "D-S30", "cor": "", "qty": 300},
-    {"sku": "D-BH2807", "cor": "", "qty": 300},
-    {"sku": "D-4232", "cor": "", "qty": 300},
-    {"sku": "D-3158", "cor": "PRETO", "qty": 300},
-    {"sku": "D-3158", "cor": "AZUL", "qty": 300},
-    {"sku": "D-3158", "cor": "AMARELO", "qty": 300},
-    {"sku": "D-3158", "cor": "VERM", "qty": 300},
-    {"sku": "D-3158", "cor": "VERDE", "qty": 300},
-    {"sku": "D-BH1065", "cor": "", "qty": 300},
-    {"sku": "D-BH1064", "cor": "", "qty": 300},
-    {"sku": "D-BH1051", "cor": "", "qty": 300},
-    {"sku": "D-BH1050", "cor": "", "qty": 300},
-    {"sku": "D-BH1019", "cor": "", "qty": 300},
-    {"sku": "D-1601", "cor": "", "qty": 300},
-    {"sku": "D-3151", "cor": "", "qty": 300},
-    {"sku": "D-Y04/05", "cor": "", "qty": 300},
-    {"sku": "D-NK1201", "cor": "", "qty": 300},
-    {"sku": "D-MN001", "cor": "", "qty": 300},
-    {"sku": "D-TELA04", "cor": "", "qty": 300},
-    {"sku": "D-TELA02", "cor": "", "qty": 300},
-    {"sku": "D-AI05", "cor": "", "qty": 300},
-    {"sku": "D-A24E9903", "cor": "", "qty": 300},
-    {"sku": "D-AI06", "cor": "", "qty": 300},
-    {"sku": "D-X338", "cor": "", "qty": 300},
-    {"sku": "D-XK300", "cor": "", "qty": 300},
-    {"sku": "D-S8122", "cor": "", "qty": 300},
-    {"sku": "D-Y07", "cor": "", "qty": 300},
-    {"sku": "D-XK101", "cor": "", "qty": 300},
-    {"sku": "D-X612", "cor": "", "qty": 300},
-
-    {"sku": "PROT. AURICULAR", "cor": "", "qty": 300},
-    {"sku": "PAPABOLINHAS", "cor": "", "qty": 300},
-    {"sku": "M-303", "cor": "", "qty": 300},
-    {"sku": "CS-30", "cor": "", "qty": 300},
-    {"sku": "RO-832", "cor": "", "qty": 300},
-    {"sku": "LB-521", "cor": "", "qty": 300},
-    {"sku": "FONE", "cor": "", "qty": 300},
-    {"sku": "PG-9023S", "cor": "", "qty": 300},
-    {"sku": "XKO01PRETO", "cor": "", "qty": 300},
-
-    {"sku": "ON-FN632", "cor": "BRANCO", "qty": 300},
-    {"sku": "ON-FN632", "cor": "ROSA", "qty": 300},
-    {"sku": "ON-FN632", "cor": "VERDE", "qty": 300},
-    {"sku": "ON-FN632", "cor": "ROXO", "qty": 300},
-    {"sku": "ON-FN632", "cor": "AZUL", "qty": 300},
-
-    {"sku": "TE-115", "cor": "", "qty": 300},
-    {"sku": "TE-119", "cor": "", "qty": 300},
-    {"sku": "TE-121", "cor": "", "qty": 300},
-    {"sku": "TE-124", "cor": "", "qty": 300},
-    {"sku": "PN-899", "cor": "", "qty": 300},
-    {"sku": "CANETA TERMICA", "cor": "", "qty": 300},
-    {"sku": "TABLET INFANTIL", "cor": "azul", "qty": 300},
-    {"sku": "TABLET INFANTIL", "cor": "rosa", "qty": 300},
-    {"sku": "KP-TE129", "cor": "", "qty": 300},
-    {"sku": "KP-TE146", "cor": "", "qty": 300},
-    {"sku": "D-TELA03", "cor": "", "qty": 300},
-    {"sku": "D-TELA05", "cor": "", "qty": 300},
-    {"sku": "D-TELA06", "cor": "", "qty": 300},
-    {"sku": "D-TELA07", "cor": "", "qty": 300},
-
-    {"sku": "D-BH1064", "cor": "VERMELHO", "qty": 300},
-    {"sku": "D-BH1064", "cor": "PRETO", "qty": 300},
-    {"sku": "D-BH1064", "cor": "ROSA", "qty": 300},
-    {"sku": "D-BH1064", "cor": "PRATA", "qty": 300},
-    {"sku": "D-BH1064", "cor": "ROSÉ", "qty": 300},
-
-    {"sku": "D-BH1051", "cor": "AZUL", "qty": 300},
-    {"sku": "D-BH1051", "cor": "PRETO", "qty": 300},
-    {"sku": "D-BH1051", "cor": "ROSÉ", "qty": 300},
-    {"sku": "D-BH1051", "cor": "ROSA", "qty": 300},
-    {"sku": "D-BH1051", "cor": "VERMELHO", "qty": 300},
-    {"sku": "D-BH1051", "cor": "PRATA", "qty": 300},
-
-    {"sku": "D-BH1050", "cor": "AZUL", "qty": 300},
-    {"sku": "D-BH1050", "cor": "PRETO", "qty": 300},
-    {"sku": "D-BH1050", "cor": "ROSÉ", "qty": 300},
-    {"sku": "D-BH1050", "cor": "PRATA", "qty": 300},
-
-    {"sku": "AI07", "cor": "", "qty": 300},
-    {"sku": "AI03", "cor": "", "qty": 300},
-    {"sku": "D-BH8115", "cor": "", "qty": 300},
-    {"sku": "D-238G 180H", "cor": "", "qty": 300},
-    {"sku": "DS-14", "cor": "PRETO", "qty": 300},
-    {"sku": "KP-397", "cor": "VERMELHO", "qty": 300},
-    {"sku": "KP-FN632", "cor": "ROSA", "qty": 300},
-    {"sku": "KP-FN632", "cor": "VERDE", "qty": 300},
-    {"sku": "D-FT101", "cor": "", "qty": 300},
-    {"sku": "DRONE", "cor": "", "qty": 300},
-    {"sku": "RO802", "cor": "", "qty": 300}
-  ];
-
-  let itens = [];
-  let proximoId = 1;
-
-  const tbodyItens = document.getElementById('tbodyItens');
-  const resumoDiv = document.getElementById('resumo');
-  const campoBipagem = document.getElementById('campoBipagem');
-  const infoBipagem = document.getElementById('infoBipagem');
-
-  // Inicializa com base na planilha embutida
-  function inicializarItens() {
-    itens = itensBasePlanilha.map(obj => ({
-      id: proximoId++,
-      sku: obj.sku,
-      cor: obj.cor,
-      qty: obj.qty,
-      bipado: 0
-    }));
-    renderTabela();
-  }
-
-  // =========================
-  // 2) Normalização de texto / cor
-  // =========================
-  function normalizarTexto(txt) {
-    if (!txt) return "";
-    return txt.toString().trim().toUpperCase();
-  }
-
-  function normalizarCorCanon(cor) {
-    if (!cor) return "";
-    let c = cor.toString().trim().toUpperCase();
-
-    c = c
-      .replace(/[ÁÀÂÃ]/g, "A")
-      .replace(/[ÉÈÊ]/g, "E")
-      .replace(/[ÍÌÎ]/g, "I")
-      .replace(/[ÓÒÔÕ]/g, "O")
-      .replace(/[ÚÙÛ]/g, "U")
-      .replace(/Ç/g, "C");
-
-    c = c.replace(/\s+/g, " ");
-
-    const mapa = {
-      "BCO": "BRANCO",
-      "BRAN": "BRANCO",
-      "BRANCO": "BRANCO",
-      "PRETA": "PRETO",
-      "PRETO": "PRETO",
-      "PT": "PRETO",
-      "PTO": "PRETO",
-      "AZUL": "AZUL",
-      "VERDE": "VERDE",
-      "VD": "VERDE",
-      "ROSA": "ROSA",
-      "VERM": "VERMELHO",
-      "VERMELHO": "VERMELHO",
-      "LARANJA": "LARANJA",
-      "CINZA": "CINZA",
-      "MARROM": "MARROM",
-      "LILAS": "LILAS",
-      "ROXO": "ROXO",
-      "ROSE": "ROSE",
-      "ROSEGOLD": "ROSE",
-      "ROSÉ": "ROSE"
-    };
-
-    const semEspaco = c.replace(/\s+/g, "");
-    if (mapa[semEspaco]) return mapa[semEspaco];
-    if (mapa[c]) return mapa[c];
-
-    return c;
-  }
-
-  function prettyCor(corCanon) {
-    if (!corCanon) return "";
-    return corCanon.toUpperCase();
-  }
-
-  // =========================
-  // 3) Adaptar SKU -> padrão PDF (para bipagem)
-  // =========================
-  function adaptarSkuParaPdf(skuOriginal, corOriginal) {
-    if (!skuOriginal) return "";
-    const skuUp = skuOriginal.toString().trim().toUpperCase();
-    const corCanon = normalizarCorCanon(corOriginal || "");
-    const corPretty = prettyCor(corCanon);
-
-    // Casos especiais baseados no que aparece nas etiquetas/PDF
-
-    if (skuUp === "D-3204") {
-      return "D-3204+MIC";
-    }
-
-    if (skuUp === "D-3210") {
-      return "D-3210 (SEM MICROFONE)";
-    }
-
-    if (skuUp === "D-3158" || skuUp === "D-S3158") {
-      const base = "D-S3158";
-      if (corPretty) return base + " (" + corPretty + ")";
-      return base;
-    }
-
-    if (skuUp === "D-3142") {
-      // No DANFE aparece "3142 (Preto)" etc
-      if (corPretty) return "3142 (" + corPretty + ")";
-      return "3142";
-    }
-
-    if (skuUp === "D-Y03") {
-      if (corCanon) return "D-Y03" + corCanon + " (" + corPretty + ")";
-      return "D-Y03";
-    }
-
-    if (skuUp === "D-Y04" || skuUp === "D-Y05" || skuUp === "D-Y04/05") {
-      let base = skuUp;
-      if (corPretty) return base + " (" + corPretty + ")";
-      return base;
-    }
-
-    if (skuUp === "D-1601" && corCanon) {
-      // D-1601AZUL (AZUL), D-1601MARROM (MARROM) etc.
-      return "D-1601" + corCanon + " (" + corPretty + ")";
-    }
-
-    if (skuUp === "KP-7023") {
-      if (corCanon) return "KP-7023" + corCanon + " (" + corPretty + ")";
-      return "KP-7023";
-    }
-
-    if (skuUp === "ON-FN632" || skuUp === "KP-FN632") {
-      if (corCanon) return "ON-FN632" + corCanon + " (" + corPretty + ")";
-      return "ON-FN632";
-    }
-
-    if (skuUp === "KP-TE115" || skuUp === "TE-115") {
-      return "TE-115 (Tecnologia Anti-Ghost)";
-    }
-
-    if (skuUp === "KP-TE124" || skuUp === "TE-124") {
-      return "TE-124 (Iluminação RGB Gamer)";
-    }
-
-    if (skuUp === "KP-TE112") {
-      if (corCanon) {
-        return "KP-TE112" + corCanon + " (" + corPretty + ")";
-      }
-      return "KP-TE112";
-    }
-
-    if (skuUp === "KP-LB521" || skuUp === "LB-521") {
-      return "LB-521";
-    }
-
-    if (skuUp === "KP-PN899" || skuUp === "PN-899") {
-      return "PN-899PD";
-    }
-
-    if (skuUp === "PROT. AURICULAR" || skuUp === "PROT AURICULAR") {
-      return "PROTETOR AURICULAR";
-    }
-
-    if (skuUp === "D-MN001" || skuUp === "MONITOR D-MN001") {
-      return "MONITOR D-MN001";
-    }
-
-    if (skuUp === "XKO01PRETO") {
-      const corText = corPretty || "PRETO";
-      return "XKO01PRETO (" + corText + ")";
-    }
-
-    if (skuUp === "CS-30") {
-      return "CS-30";
-    }
-
-    if (skuUp === "RO-832") {
-      return "RO-832";
-    }
-
-    if (skuUp === "PG-9023S") {
-      return "PG-9023S";
-    }
-
-    if (skuUp === "M-303") {
-      return "M-303";
-    }
-
-    if (skuUp === "FONE" || skuUp === "FONE LEBOSS") {
-      return "FONE LEBOSS";
-    }
-
-    if (skuUp === "D-BH1064") {
-      // D-BH1064PRETO (PRETO), D-BH1064VERMELHO (VERMELHO) etc.
-      if (corCanon) return "D-BH1064" + corCanon + " (" + corPretty + ")";
-      return "D-BH1064";
-    }
-
-    if (skuUp === "D-BH1051") {
-      if (corCanon) return "D-BH1051" + corCanon + " (" + corPretty + ")";
-      return "D-BH1051";
-    }
-
-    if (skuUp === "D-BH1050") {
-      if (corCanon) return "D-BH1050" + corCanon + " (" + corPretty + ")";
-      return "D-BH1050";
-    }
-
-    if (skuUp === "DS-14" || skuUp === "D-S14") {
-      if (corCanon) return "DS-14" + corCanon + " (" + corPretty + ")";
-      return "DS-14";
-    }
-
-    // Regra genérica: se tiver cor, coloca (COR), senão só o SKU
-    if (corPretty) {
-      return skuUp + " (" + corPretty + ")";
-    }
-
-    return skuUp;
-  }
-
-  // =========================
-  // 4) Renderização da tabela
-  // =========================
-  function renderTabela() {
-    tbodyItens.innerHTML = "";
-
-    const ordenados = [...itens].sort((a, b) => {
-      const sA = a.sku.toUpperCase();
-      const sB = b.sku.toUpperCase();
-      if (sA < sB) return -1;
-      if (sA > sB) return 1;
-      const cA = (a.cor || "").toUpperCase();
-      const cB = (b.cor || "").toUpperCase();
-      if (cA < cB) return -1;
-      if (cA > cB) return 1;
-      return 0;
-    });
-
-    ordenados.forEach((item, index) => {
-      const tr = document.createElement('tr');
-
-      const bip = item.bipado || 0;
-      const esperado = Number(item.qty) || 0;
-
-      let status = "";
-      let badgeClass = "";
-      let rowClass = "";
-
-      if (esperado === 0 && bip === 0) {
-        status = "Sem quantidade";
-      } else if (bip === 0 && esperado > 0) {
-        status = "Ainda não bipado";
-        badgeClass = "badge-pendente";
-        rowClass = "pendente";
-      } else if (bip < esperado) {
-        status = `Pendente (${bip}/${esperado})`;
-        badgeClass = "badge-pendente";
-        rowClass = "pendente";
-      } else if (bip === esperado) {
-        status = "OK (completo)";
-        badgeClass = "badge-ok";
-        rowClass = "ok";
-      } else if (bip > esperado) {
-        status = `Excesso (${bip}/${esperado})`;
-        badgeClass = "badge-alerta";
-        rowClass = "alerta";
-      }
-
-      tr.className = rowClass;
-
-      const tdIdx = document.createElement('td');
-      tdIdx.textContent = index + 1;
-      tr.appendChild(tdIdx);
-
-      const tdSku = document.createElement('td');
-      tdSku.textContent = item.sku;
-      tr.appendChild(tdSku);
-
-      const tdCor = document.createElement('td');
-      tdCor.textContent = item.cor || "-";
-      tr.appendChild(tdCor);
-
-      const tdSkuPdf = document.createElement('td');
-      tdSkuPdf.textContent = adaptarSkuParaPdf(item.sku, item.cor);
-      tr.appendChild(tdSkuPdf);
-
-      const tdQtd = document.createElement('td');
-      const inputQtd = document.createElement('input');
-      inputQtd.type = "number";
-      inputQtd.min = "0";
-      inputQtd.value = item.qty;
-      inputQtd.style.width = "80px";
-      inputQtd.addEventListener('change', () => {
-        item.qty = Number(inputQtd.value) || 0;
-        renderTabela();
-      });
-      tdQtd.appendChild(inputQtd);
-      tr.appendChild(tdQtd);
-
-      const tdBip = document.createElement('td');
-      tdBip.textContent = bip;
-      tr.appendChild(tdBip);
-
-      const tdStatus = document.createElement('td');
-      if (status) {
-        const span = document.createElement('span');
-        span.textContent = status;
-        span.className = "badge " + badgeClass;
-        tdStatus.appendChild(span);
-      }
-      tr.appendChild(tdStatus);
-
-      const tdAcoes = document.createElement('td');
-      tdAcoes.className = "row-actions";
-      const btnRemover = document.createElement('button');
-      btnRemover.textContent = "Remover";
-      btnRemover.addEventListener('click', () => {
-        removerItemPorId(item.id);
-      });
-      tdAcoes.appendChild(btnRemover);
-      tr.appendChild(tdAcoes);
-
-      tbodyItens.appendChild(tr);
-    });
-
-    atualizarResumo();
-  }
-
-  function atualizarResumo() {
-    const totalItens = itens.length;
-    const totalQtd = itens.reduce((s, it) => s + (Number(it.qty) || 0), 0);
-    const totalBip = itens.reduce((s, it) => s + (Number(it.bipado) || 0), 0);
-
-    resumoDiv.innerHTML =
-      `<p><b>Total de variações (linhas):</b> ${totalItens}<br>` +
-      `<b>Total de peças (quantidade esperada):</b> ${totalQtd}<br>` +
-      `<b>Total de peças bipadas (somando todos os itens):</b> ${totalBip}</p>`;
-  }
-
-  // =========================
-  // 5) Adicionar / atualizar / remover
-  // =========================
-  document.getElementById('btnAdicionar').addEventListener('click', function() {
-    const sku = document.getElementById('novoSku').value.trim();
-    const cor = document.getElementById('novaCor').value.trim();
-    const qtd = Number(document.getElementById('novaQtd').value) || 0;
-
-    if (!sku) {
-      alert("Informe o SKU.");
-      return;
-    }
-
-    adicionarOuAtualizarItem(sku, cor, qtd, true);
+// =====================
+// ESTOQUE (mock inicial)
+// =====================
+let estoque = [
+  { sku: "D-3204+MIC", cor: "", qtd: 300 },
+  { sku: "TE-115 (Tecnologia Anti-Ghost)", cor:"", qtd:300 },
+  { sku: "KP-7023BRANCO (BRANCO)", cor:"BRANCO", qtd:300 },
+  { sku: "D-Y03CINZA (CINZA)", cor:"CINZA", qtd:300 }
+];
+
+function atualizarTabela() {
+  const body = document.getElementById("estoqueBody");
+  body.innerHTML = "";
+  estoque.forEach((p, i)=>{
+    let tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${p.sku}</td>
+      <td>${p.cor}</td>
+      <td>${p.qtd}</td>
+      <td><button onclick="remover(${i})">Remover</button></td>
+    `;
+    body.appendChild(tr);
   });
+}
+atualizarTabela();
 
-  function adicionarOuAtualizarItem(sku, cor, qty, renderDepois) {
-    const skuNorm = normalizarTexto(sku);
-    const corNorm = normalizarTexto(cor);
+function adicionarManual(){
+  const s = document.getElementById("novoSku").value.trim();
+  const c = document.getElementById("novaCor").value.trim();
+  const q = parseInt(document.getElementById("novaQtd").value);
+  estoque.push({ sku:s, cor:c, qtd:q });
+  atualizarTabela();
+}
 
-    let itemExistente = itens.find(it =>
-      normalizarTexto(it.sku) === skuNorm &&
-      normalizarTexto(it.cor) === corNorm
-    );
+function remover(i){
+  estoque.splice(i,1);
+  atualizarTabela();
+}
 
-    if (itemExistente) {
-      itemExistente.qty = qty;
-    } else {
-      itens.push({
-        id: proximoId++,
-        sku: sku,
-        cor: cor,
-        qty: qty,
-        bipado: 0
-      });
+// =====================
+// CÂMERA + OCR
+// =====================
+const video = document.getElementById("video");
+
+document.getElementById("btnCamera").onclick = async () => {
+  const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }});
+  video.srcObject = stream;
+
+  processarOCR();
+};
+
+async function processarOCR(){
+  setInterval(async ()=>{
+    const canvas = document.createElement("canvas");
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    canvas.getContext("2d").drawImage(video, 0, 0);
+
+    const dataURL = canvas.toDataURL("image/png");
+    const result = await Tesseract.recognize(dataURL, "por");
+
+    let texto = result.data.text;
+    document.getElementById("resultadoOCR").innerText = texto;
+
+    // Captura SKU tipo: D-3204+MIC *1
+    const regex = /([A-Z0-9\-+() ]+)\s*\*([0-9]+)/i;
+    const match = texto.match(regex);
+
+    if(match){
+      const skuLido = match[1].trim();
+      const qtdLida = parseInt(match[2]);
+
+      biparProduto(skuLido, qtdLida);
     }
+  }, 2500);
+}
 
-    if (renderDepois) {
-      renderTabela();
-      document.getElementById('novoSku').value = "";
-      document.getElementById('novaCor').value = "";
-      document.getElementById('novaQtd').value = 300;
-    }
+function biparProduto(sku, qtd){
+  let item = estoque.find(p=>p.sku.toUpperCase()===sku.toUpperCase());
+  if(item){
+    item.qtd -= qtd;
+    if(item.qtd < 0) item.qtd = 0;
+    atualizarTabela();
+    document.getElementById("resultadoOCR").innerText =
+      `✔ SKU reconhecido: ${sku}\n✔ Quantidade: ${qtd}\n✔ Estoque atualizado!`;
+  } else {
+    document.getElementById("resultadoOCR").innerText =
+      `⚠ SKU não encontrado: ${sku}`;
   }
-
-  function removerItemPorId(id) {
-    itens = itens.filter(it => it.id !== id);
-    renderTabela();
-  }
-
-  // =========================
-  // 6) Extração de SKU + quantidade do texto lido
-  // =========================
-  function extrairSkuEQuantidade(texto) {
-    if (!texto) return { codigoSku: "", quantidade: 0 };
-
-    let quantidade = 1;
-    const m = texto.match(/\*\s*(\d+)/);
-    if (m) {
-      const q = parseInt(m[1], 10);
-      if (!isNaN(q) && q > 0) quantidade = q;
-    }
-
-    // Parte antes do * (tira o "( *2 )", "*1" etc.)
-    let antesAsterisco = texto;
-    if (texto.includes('*')) {
-      antesAsterisco = texto.split('*')[0];
-    }
-
-    // Remove um "(" pendurado no final caso seja "( *2 )"
-    antesAsterisco = antesAsterisco.replace(/\(\s*$/, "");
-
-    // Remove numeração tipo "1."
-    antesAsterisco = antesAsterisco.replace(/^\s*\d+\.\s*/, "");
-
-    const codigoSku = antesAsterisco.trim();
-
-    return { codigoSku, quantidade };
-  }
-
-  // Localiza item pelo texto do SKU (padrão PDF ou SKU da planilha)
-  function encontrarItemPorCodigo(codigoSku, textoOriginal) {
-    const codigoUp = codigoSku.toUpperCase().trim();
-    const textoUp = (textoOriginal || codigoSku).toUpperCase();
-
-    const candidatos = [];
-
-    for (const item of itens) {
-      const skuPdfUp = adaptarSkuParaPdf(item.sku, item.cor).toUpperCase();
-      const skuPlanUp = item.sku.toUpperCase();
-
-      if (codigoUp === skuPdfUp || codigoUp === skuPlanUp ||
-          textoUp.includes(skuPdfUp)) {
-        candidatos.push(item);
-      }
-    }
-
-    if (candidatos.length === 0) return { tipo: "nenhum", item: null };
-    if (candidatos.length > 1) return { tipo: "varios", item: null };
-
-    return { tipo: "ok", item: candidatos[0] };
-  }
-
-  // =========================
-  // 7) Bipagem (teclado/leitor)
-  // =========================
-  campoBipagem.addEventListener('keydown', function(e) {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      const valor = campoBipagem.value.trim();
-      if (valor) {
-        registrarBipagem(valor);
-        campoBipagem.value = "";
-      }
-    }
-  });
-
-  function registrarBipagem(textoLido) {
-    const { codigoSku, quantidade } = extrairSkuEQuantidade(textoLido);
-
-    if (!codigoSku) {
-      infoBipagem.textContent = `⚠ Não consegui extrair o SKU do texto: "${textoLido}"`;
-      return;
-    }
-
-    const resultado = encontrarItemPorCodigo(codigoSku, textoLido);
-
-    if (resultado.tipo === "nenhum") {
-      infoBipagem.textContent = `⚠ SKU/código não encontrado para: "${codigoSku}" (texto completo: "${textoLido}")`;
-      return;
-    }
-    if (resultado.tipo === "varios") {
-      infoBipagem.textContent = `⚠ Código "${codigoSku}" corresponde a mais de um item (ambíguo). Ajuste o mapeamento.`;
-      return;
-    }
-
-    const item = resultado.item;
-    const esperado = Number(item.qty) || 0;
-
-    item.bipado = (item.bipado || 0) + quantidade;
-
-    const bip = item.bipado;
-    const skuPdf = adaptarSkuParaPdf(item.sku, item.cor);
-
-    let msg = `Bipado: "${skuPdf}" +${quantidade} (total ${bip}/${esperado}). `;
-
-    if (bip > esperado && esperado > 0) {
-      msg += "ALERTA: quantidade bipada maior que o esperado. Pode ter produto duplicado.";
-    } else if (bip === esperado && esperado > 0) {
-      msg += "OK: atingiu a quantidade completa.";
-    } else if (bip < esperado && esperado > 0) {
-      msg += "Ainda pendente.";
-    }
-
-    infoBipagem.textContent = msg;
-    renderTabela();
-  }
-
-  // =========================
-  // 8) Leitura pela câmera (html5-qrcode)
-  // =========================
-  let html5QrCode = null;
-  let cameraAtiva = false;
-
-  const btnCamera = document.getElementById('btnCamera');
-  const btnFecharCamera = document.getElementById('btnFecharCamera');
-  const cameraContainer = document.getElementById('cameraContainer');
-
-  btnCamera.addEventListener('click', async function() {
-    try {
-      if (cameraAtiva) {
-        cameraContainer.style.display = 'block';
-        infoBipagem.textContent = "Câmera já ativa. Aponte para o código com o texto do SKU.";
-        return;
-      }
-
-      cameraContainer.style.display = 'block';
-      infoBipagem.textContent = "Abrindo câmera... autorize o acesso se o navegador pedir.";
-
-      html5QrCode = new Html5Qrcode("reader");
-      const config = { fps: 10, qrbox: { width: 250, height: 250 } };
-
-      await html5QrCode.start(
-        { facingMode: "environment" },
-        config,
-        (decodedText, decodedResult) => {
-          // Toda leitura entra no mesmo fluxo de bipagem (com quantidade)
-          registrarBipagem(decodedText);
-        },
-        (errorMessage) => {
-          // Erros de leitura contínua são normais, não precisa exibir.
-        }
-      );
-
-      cameraAtiva = true;
-      infoBipagem.textContent = "Câmera ativa. Aponte para o código (que deve conter SKU + *quantidade).";
-
-    } catch (err) {
-      console.error(err);
-      infoBipagem.textContent = "Não foi possível abrir a câmera: " + err;
-      cameraContainer.style.display = 'none';
-      cameraAtiva = false;
-    }
-  });
-
-  btnFecharCamera.addEventListener('click', async function() {
-    if (html5QrCode && cameraAtiva) {
-      try {
-        await html5QrCode.stop();
-        await html5QrCode.clear();
-      } catch (e) {
-        console.error(e);
-      }
-    }
-    cameraAtiva = false;
-    cameraContainer.style.display = 'none';
-    infoBipagem.textContent = "Câmera fechada.";
-  });
-
-  // Inicialização
-  inicializarItens();
+}
 </script>
+
 </body>
 </html>
