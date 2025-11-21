@@ -191,24 +191,25 @@
       </div>
 
       <p class="small-note" style="margin-top:8px;">
-        Observação: este arquivo usa <strong>pdf.js</strong>. Para funcionar offline, deixe
-        <code>pdf.js</code> e <code>pdf.worker.js</code> na mesma pasta deste HTML e mantenha os nomes
-        dos arquivos como estão nas linhas de script.
+        Este arquivo usa pdf.js via CDN. Depois você pode baixar os arquivos da CDN e trocar os links para ficar 100% offline.
       </p>
     </div>
   </div>
 
-  <!-- pdf.js local -->
-  <script src="pdf.js"></script>
+  <!-- pdf.js via CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+  <script>
+    if (window['pdfjsLib']) {
+      pdfjsLib.GlobalWorkerOptions.workerSrc =
+        'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+    } else {
+      alert('pdf.js não carregou. Verifique sua conexão ou o link da CDN.');
+    }
+  </script>
 
   <script>
-    // Configuração do pdf.js (ajuste o caminho se necessário)
-    if (window['pdfjsLib']) {
-      pdfjsLib.GlobalWorkerOptions.workerSrc = 'pdf.worker.js';
-    }
-
-    // ====================== PLANILHA FIXA (CSV EMBUTIDO) ======================
-    // Todos os itens começam com 300 de estoque (Qtd esperada ignorada e forçada para 300)
+    // ====================== PLANILHA FIXA EMBUTIDA ======================
+    // Todos os itens começam com estoqueAtual = 300
     const csvData = `SKU (planilha);Cor (planilha);SKU p/ bipagem (padrÆo PDF);Qtd esperada
 KP-RO826;;KP-RO826;300
 KP-RO852;;KP-RO852;300
@@ -347,8 +348,7 @@ DRONE;;DRONE;300
 RO802;;RO802;300
 `;
 
-    // ====================== ESTADO E UTILITÁRIOS ======================
-
+    // ====================== UTILITÁRIOS E ESTADO ======================
     function parseCsvToItems(csvText) {
       const lines = csvText.trim().split(/\r?\n/);
       const header = lines.shift().split(';');
@@ -387,7 +387,6 @@ RO802;;RO802;300
     }
 
     let items = parseCsvToItems(csvData);
-    const originalItems = JSON.parse(JSON.stringify(items)); // backup se quiser reset geral
     let skuIndex = new Map();
     let currentFilter = '';
 
@@ -398,9 +397,7 @@ RO802;;RO802;300
         item.normSkuBipagem = normalizeSku(item.skuBipagem);
         const keys = new Set([item.normSkuPlanilha, item.normSkuBipagem]);
         keys.forEach(k => {
-          if (k && !skuIndex.has(k)) {
-            skuIndex.set(k, idx);
-          }
+          if (k && !skuIndex.has(k)) skuIndex.set(k, idx);
         });
       });
     }
@@ -485,15 +482,12 @@ RO802;;RO802;300
       const base = rawPart.replace(/\s+/g, ' ').trim();
       if (base) candidates.push(base);
 
-      // 1ª variação: remove qualquer "(COR)"
       const withoutColor = base.replace(/\([^)]*\)/g, '').trim();
       if (withoutColor && !candidates.includes(withoutColor)) candidates.push(withoutColor);
 
-      // 2ª variação: só a primeira palavra
       const firstWord = base.split(/\s+/)[0];
       if (firstWord && !candidates.includes(firstWord)) candidates.push(firstWord);
 
-      // 3ª variação: primeiro bloco que parece código (letras, números e -/+ /)
       const codeMatch = base.match(/[A-Z0-9\-\/\+]+/i);
       if (codeMatch && !candidates.includes(codeMatch[0])) candidates.push(codeMatch[0]);
 
@@ -514,7 +508,7 @@ RO802;;RO802;300
 
     async function processPdfFile(file) {
       if (!window['pdfjsLib']) {
-        alert('pdf.js não foi carregado. Confira se pdf.js e pdf.worker.js estão na mesma pasta.');
+        alert('pdf.js não foi carregado. Verifique sua conexão ou o link da CDN.');
         return;
       }
 
@@ -529,7 +523,6 @@ RO802;;RO802;300
         const textContent = await page.getTextContent();
         const text = textContent.items.map(item => item.str).join(' ');
 
-        // Padrão principal: "1. QUALQUER_COISA *QTD"
         const regex = /1\.\s*([^*]+?)\*(\d+)/g;
         let match;
 
@@ -554,7 +547,7 @@ RO802;;RO802;300
             movimentosNaoEncontrados++;
             addLog(
               `Pág. ${pageNum}: NÃO encontrado nenhum item para "${rawPart}" (qtd ${qty}). ` +
-              `Candidatos gerados: ${candidates.join(' | ')}`
+              `Candidatos: ${candidates.join(' | ')}`
             );
           }
         }
@@ -568,7 +561,6 @@ RO802;;RO802;300
     }
 
     // ====================== EVENTOS DE UI ======================
-
     document.getElementById('processBtn').addEventListener('click', async () => {
       const input = document.getElementById('pdfInput');
       const file = input.files && input.files[0];
@@ -603,7 +595,6 @@ RO802;;RO802;300
       clearLog();
     });
 
-    // Edição de células (inline) + excluir
     document.getElementById('stockTable').addEventListener('blur', (e) => {
       const cell = e.target;
       if (cell.matches('td[contenteditable="true"]')) {
@@ -618,7 +609,6 @@ RO802;;RO802;300
           if (!isNaN(num)) {
             item[field] = num;
           } else {
-            item[field] = item[field]; // mantém valor anterior
             cell.textContent = item[field];
           }
         } else {
@@ -634,14 +624,12 @@ RO802;;RO802;300
       if (btn.matches('button[data-action="delete"]')) {
         const id = Number(btn.getAttribute('data-id'));
         items = items.filter(it => it.id !== id);
-        // Reorganiza IDs só para ficar bonitinho
         items.forEach((it, idx) => it.id = idx + 1);
         renderTable();
         addLog(`Item com id ${id} excluído.`);
       }
     });
 
-    // Inicializa a tabela e o índice
     renderTable();
   </script>
 </body>
