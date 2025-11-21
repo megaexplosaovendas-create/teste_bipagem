@@ -1,34 +1,45 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-  <meta charset="UTF-8" />
-  <title>Controle de Estoque por PDF - SKU + Rastreamento</title>
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta charset="UTF-8">
+  <title>Controle de Estoque por Etiquetas PDF (SKU + Quantidade + Rastreamento)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  <!-- pdf.js – carrega a biblioteca antes de usar pdfjsLib -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.3.136/pdf.min.js"></script>
+  <script>
+    // Configura o worker da pdf.js para evitar erro de GlobalWorkerOptions
+    if (window['pdfjsLib']) {
+      pdfjsLib.GlobalWorkerOptions.workerSrc =
+        "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.3.136/pdf.worker.min.js";
+    }
+  </script>
+
   <style>
     body {
       font-family: Arial, sans-serif;
       margin: 10px;
-      background: #f4f4f4;
+      background: #f7f7f7;
+      color: #333;
     }
     .container {
       max-width: 1200px;
       margin: 0 auto;
       background: #fff;
       padding: 10px;
-      border-radius: 6px;
-      box-shadow: 0 0 6px rgba(0,0,0,0.1);
+      border-radius: 8px;
+      box-shadow: 0 0 8px rgba(0,0,0,0.05);
     }
     h1, h2 {
-      margin: 6px 0;
       font-size: 20px;
+      margin: 10px 0;
     }
     p {
-      margin: 4px 0;
-      font-size: 13px;
+      margin: 6px 0;
+      font-size: 14px;
     }
-    .small { font-size: 12px; color: #555; }
     input, button {
-      font-size: 13px;
+      font-size: 14px;
       padding: 6px 8px;
       margin: 3px 0;
     }
@@ -36,12 +47,20 @@
       width: 100%;
       box-sizing: border-box;
     }
-    button { cursor: pointer; }
+    button {
+      cursor: pointer;
+      border-radius: 4px;
+      border: 1px solid #ccc;
+      background: #e9f3ff;
+    }
+    button:hover {
+      background: #d7e7ff;
+    }
     table {
       width: 100%;
       border-collapse: collapse;
-      margin-top: 8px;
-      font-size: 12px;
+      margin-top: 10px;
+      font-size: 13px;
     }
     th, td {
       border: 1px solid #ccc;
@@ -49,37 +68,20 @@
       text-align: left;
     }
     th {
-      background: #eee;
+      background: #f0f0f0;
       position: sticky;
       top: 0;
       z-index: 1;
     }
-    .row-actions button {
-      font-size: 11px;
-      padding: 2px 5px;
-    }
-    .ok { background: #e0ffe0; }
-    .pendente { background: #fffbe0; }
-    .alerta { background: #ffe0e0; }
-    .badge {
-      display: inline-block;
-      padding: 2px 6px;
-      border-radius: 4px;
-      font-size: 11px;
-    }
-    .badge-ok { background: #c6f6c6; }
-    .badge-pendente { background: #fff4b3; }
-    .badge-alerta { background: #ffc4c4; }
-    .log-area {
-      max-height: 200px;
-      overflow: auto;
-      background: #fafafa;
-      border: 1px solid #ddd;
-      padding: 5px;
+    .small {
       font-size: 12px;
-      white-space: pre-wrap;
+      color: #666;
     }
-    @media (min-width: 700px) {
+    .row-actions button {
+      font-size: 12px;
+      padding: 3px 6px;
+    }
+    @media (min-width: 600px) {
       .form-grid {
         display: grid;
         grid-template-columns: 2fr 2fr 1fr auto;
@@ -87,40 +89,79 @@
         align-items: center;
       }
     }
+    .ok {
+      background: #e0ffe0;
+    }
+    .pendente {
+      background: #fffbe0;
+    }
+    .alerta {
+      background: #ffe0e0;
+    }
+    .badge {
+      display: inline-block;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 11px;
+    }
+    .badge-ok {
+      background: #c6f6c6;
+    }
+    .badge-pendente {
+      background: #fff2b3;
+    }
+    .badge-alerta {
+      background: #ffc4c4;
+    }
+    .badge-dup {
+      background: #ffb3d9;
+    }
+    .log {
+      max-height: 260px;
+      overflow: auto;
+      border: 1px solid #ddd;
+      padding: 4px;
+      background: #fafafa;
+      font-size: 12px;
+    }
+    .log-entry-ok { color: #1f7a1f; }
+    .log-entry-dup { color: #b30059; }
+    .log-entry-erro { color: #b30000; }
   </style>
 </head>
 <body>
 <div class="container">
-  <h1>Controle de Estoque com PDFs de Etiquetas</h1>
+  <h1>Controle de Estoque via Etiquetas PDF (SKU + Qtde + Rastreamento)</h1>
 
   <p class="small">
-    • Estoque inicial: 300 peças para cada variação da <b>Planilha SKU</b> embutida no código.<br>
-    • Para cada página do PDF, o sistema procura a linha <code>SKU: 1; ...</code> e a linha seguinte
-      <code>1. &lt;SKU COMPLETO&gt; *QTD</code> e usa isso para abater do estoque.<br>
-    • Também captura o código de rastreio (ex.: <code>BR257793035262E</code>) para marcar etiquetas duplicadas.
+    Fluxo:<br>
+    1) Os SKUs + cores da planilha já estão embutidos (padrão usado nas etiquetas).<br>
+    2) Você faz <b>upload dos PDFs</b> das etiquetas (MEGA EXPLOSÃO etc).<br>
+    3) O sistema lê o texto do PDF, procura linhas do tipo <code>1. CS-30 *1</code>, extrai <b>SKU + quantidade</b> e
+       também o <b>código de rastreio</b> na linha <code>SKU: 1; Total Items: 1; #UP2F...</code>.<br>
+    4) Se encontrar o SKU na tabela, soma no “Bipado” e mostra se o pedido está OK, pendente ou em excesso.<br>
+    5) Se o código de rastreio já tiver sido lido antes, marca como <b>Duplicado</b> e toca um bip diferente.
   </p>
 
-  <!-- 1) Upload de PDFs -->
-  <h2>1) Ler etiquetas a partir de PDF</h2>
-  <p class="small">
-    Selecione um ou mais arquivos PDF de etiquetas (MEGA EXPLOSAO).<br>
-    O sistema irá extrair SKU, quantidade e código de rastreio de cada página.
-  </p>
-  <input type="file" id="inputPdf" accept="application/pdf" multiple />
-  <button id="btnProcessarPdf">Ler etiquetas do(s) PDF(s)</button>
-  <div id="statusPdf" class="small"></div>
-  <h3>Log de leitura</h3>
-  <div id="logLeitura" class="log-area"></div>
+  <!-- 1) Upload de PDFs das etiquetas -->
+  <h2>1) Upload de PDFs com etiquetas</h2>
+  <input type="file" id="inputPDF" accept="application/pdf" multiple>
+  <button id="btnProcessarPDFs">Processar PDFs</button>
+  <div id="infoPDF" class="small"></div>
 
-  <!-- 2) Adicionar / atualizar itens -->
+  <hr>
+
+  <!-- 2) Adicionar / atualizar itens manualmente -->
   <h2>2) Adicionar / atualizar itens manualmente</h2>
   <p class="small">
-    Se precisar incluir ou ajustar algum SKU da planilha manualmente:
+    Os SKUs da planilha já estão embutidos. Se você adicionar um SKU de etiqueta que já existe,
+    a quantidade esperada será atualizada (o bipado continua).
   </p>
+
   <div class="form-grid">
     <div>
-      <label>SKU (planilha)</label><br>
-      <input type="text" id="novoSku" placeholder="Ex: D-3204, KP-7023, ON-FN632...">
+      <label>SKU (planilha) / base</label><br>
+      <input type="text" id="novoSku" placeholder="Ex: D-Y03, ON-FN632, TE-115...">
     </div>
     <div>
       <label>Cor (planilha)</label><br>
@@ -134,35 +175,76 @@
       <button id="btnAdicionar">Adicionar / Atualizar</button>
     </div>
   </div>
-  <div id="resumo" class="small"></div>
 
-  <!-- 3) Tabela de itens -->
-  <h2>3) Itens em estoque (Planilha + ajustes)</h2>
-  <div style="max-height: 360px; overflow:auto;">
-    <table>
+  <div id="resumo"></div>
+
+  <!-- 3) Tabela de estoque -->
+  <h2>3) Itens de estoque (planilha + embutidos)</h2>
+  <div style="max-height: 330px; overflow: auto;">
+    <table id="tabelaItens">
       <thead>
-        <tr>
-          <th>#</th>
-          <th>SKU (planilha)</th>
-          <th>Cor (planilha)</th>
-          <th>SKU padrão etiqueta</th>
-          <th>Qtd esperada</th>
-          <th>Bipado (PDF)</th>
-          <th>Status</th>
-          <th>Ações</th>
-        </tr>
+      <tr>
+        <th>#</th>
+        <th>SKU base</th>
+        <th>Cor base</th>
+        <th>SKU etiqueta (padrão PDF)</th>
+        <th>Qtd esperada</th>
+        <th>Bipado</th>
+        <th>Restante</th>
+        <th>Status</th>
+        <th>Ações</th>
+      </tr>
       </thead>
       <tbody id="tbodyItens"></tbody>
     </table>
   </div>
+
+  <!-- 4) Log de etiquetas lidas -->
+  <h2>4) Log de etiquetas lidas (PDF)</h2>
+  <div class="log" id="logEtiquetas"></div>
 </div>
 
-<!-- pdf.js via CDN -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.2.67/pdf.min.js"></script>
 <script>
-  // ============================================================
-  // 1) Dados base da Planilha (mesmos do HTML anterior)
-  // ============================================================
+  // =========================
+  // 0) Beeps (som de bip)
+  // =========================
+  function tocarBeepSucesso() {
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "square";
+      osc.frequency.value = 900;
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      gain.gain.setValueAtTime(0.1, ctx.currentTime);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.15);
+    } catch (e) {
+      // se der erro, ignora (navegador bloqueou)
+    }
+  }
+
+  function tocarBeepErro() {
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "square";
+      osc.frequency.value = 300;
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      gain.gain.setValueAtTime(0.15, ctx.currentTime);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.25);
+    } catch (e) {}
+  }
+
+  // =========================
+  // 1) Base de itens (planilha)
+  // =========================
+
+  // Mesma ideia do código anterior: SKU base + cor + qty
   const itensBasePlanilha = [
     {"sku": "KP-RO826", "cor": "", "qty": 300},
     {"sku": "KP-RO852", "cor": "", "qty": 300},
@@ -265,8 +347,8 @@
     {"sku": "TE-124", "cor": "", "qty": 300},
     {"sku": "PN-899", "cor": "", "qty": 300},
     {"sku": "CANETA TERMICA", "cor": "", "qty": 300},
-    {"sku": "TABLET INFANTIL", "cor": "AZUL", "qty": 300},
-    {"sku": "TABLET INFANTIL", "cor": "ROSA", "qty": 300},
+    {"sku": "TABLET INFANTIL", "cor": "azul", "qty": 300},
+    {"sku": "TABLET INFANTIL", "cor": "rosa", "qty": 300},
     {"sku": "KP-TE129", "cor": "", "qty": 300},
     {"sku": "KP-TE146", "cor": "", "qty": 300},
     {"sku": "D-TELA03", "cor": "", "qty": 300},
@@ -301,19 +383,20 @@
     {"sku": "RO802", "cor": "", "qty": 300}
   ];
 
-  let itens = [];
+  let itens = [];   // {id, skuBase, corBase, skuEtiqueta, qtyEsperada, bipado}
   let proximoId = 1;
-  const tbodyItens = document.getElementById("tbodyItens");
-  const resumoDiv = document.getElementById("resumo");
-  const logLeitura = document.getElementById("logLeitura");
-  const statusPdf = document.getElementById("statusPdf");
 
-  // controle de rastreios já lidos (duplicidade)
-  const rastreiosLidos = new Set();
+  const tbodyItens = document.getElementById('tbodyItens');
+  const resumoDiv = document.getElementById('resumo');
+  const logEtiquetas = document.getElementById('logEtiquetas');
+  const infoPDF = document.getElementById('infoPDF');
 
-  // ============================================================
-  // 2) Utilitários de texto / SKU / cor
-  // ============================================================
+  // Set de códigos de rastreio já lidos para detectar duplicidade
+  const codigosRastreioLidos = new Set();
+
+  // =========================
+  // 2) Normalização de cor e texto
+  // =========================
   function normalizarCorCanon(cor) {
     if (!cor) return "";
     let c = cor.toString().trim().toUpperCase();
@@ -348,166 +431,156 @@
       "LILAS": "LILAS",
       "ROXO": "ROXO",
       "ROSE": "ROSE",
-      "ROSEGOLD": "ROSE"
+      "ROSEGOLD": "ROSE",
+      "ROSÉ": "ROSE"
     };
 
     const semEspaco = c.replace(/\s+/g, "");
     if (mapa[semEspaco]) return mapa[semEspaco];
     if (mapa[c]) return mapa[c];
+
     return c;
   }
 
-  function prettyCor(c) {
-    return c ? c.toUpperCase() : "";
+  function prettyCor(corCanon) {
+    if (!corCanon) return "";
+    return corCanon.toUpperCase();
   }
 
-  // gera o "SKU p/ etiqueta" (como era usado na câmera)
+  function normalizarTexto(txt) {
+    if (!txt) return "";
+    return txt.toString().trim().toUpperCase();
+  }
+
+  // =========================
+  // 3) Adaptar SKU base -> SKU de etiqueta (padrão PDF)
+  // =========================
   function adaptarSkuParaPdf(skuOriginal, corOriginal) {
     if (!skuOriginal) return "";
     const skuUp = skuOriginal.toString().trim().toUpperCase();
     const corCanon = normalizarCorCanon(corOriginal || "");
     const corPretty = prettyCor(corCanon);
 
-    if (skuUp === "D-3204") return "D-3204+MIC";
-    if (skuUp === "D-3210") return "D-3210 (SEM MICROFONE)";
-
+    if (skuUp === "D-3204") {
+      return "D-3204+MIC";
+    }
+    if (skuUp === "D-3210") {
+      return "D-3210 (SEM MICROFONE)";
+    }
     if (skuUp === "D-3158" || skuUp === "D-S3158") {
       const base = "D-S3158";
-      return corPretty ? `${base} (${corPretty})` : base;
+      if (corPretty) return base + " (" + corPretty + ")";
+      return base;
     }
-
     if (skuUp === "D-Y03") {
       if (corCanon) return "D-Y03" + corCanon + " (" + corPretty + ")";
       return "D-Y03";
     }
-
     if (skuUp === "D-Y04" || skuUp === "D-Y05" || skuUp === "D-Y04/05") {
-      return corPretty ? `${skuUp} (${corPretty})` : skuUp;
+      let base = skuUp;
+      if (corPretty) return base + " (" + corPretty + ")";
+      return base;
     }
-
     if (skuUp === "KP-7023") {
-      return corCanon ? `KP-7023${corCanon} (${corPretty})` : "KP-7023";
+      if (corCanon) return "KP-7023" + corCanon + " (" + corPretty + ")";
+      return "KP-7023";
     }
-
     if (skuUp === "ON-FN632" || skuUp === "KP-FN632") {
-      return corCanon ? `ON-FN632${corCanon} (${corPretty})` : "ON-FN632";
+      if (corCanon) return "ON-FN632" + corCanon + " (" + corPretty + ")";
+      return "ON-FN632";
     }
-
     if (skuUp === "KP-TE115" || skuUp === "TE-115") {
       return "TE-115 (Tecnologia Anti-Ghost)";
     }
-
     if (skuUp === "KP-TE124" || skuUp === "TE-124") {
       return "TE-124 (Iluminação RGB Gamer)";
     }
-
     if (skuUp === "KP-TE112") {
-      return corCanon ? `KP-TE112${corCanon} (${corPretty})` : "KP-TE112";
+      if (corCanon) return "KP-TE112" + corCanon + " (" + corPretty + ")";
+      return "KP-TE112";
     }
-
-    if (skuUp === "KP-LB521" || skuUp === "LB-521") return "LB-521";
-    if (skuUp === "KP-PN899" || skuUp === "PN-899") return "PN-899PD";
-    if (skuUp === "PROT. AURICULAR" || skuUp === "PROT AURICULAR") return "PROTETOR AURICULAR";
-    if (skuUp === "D-MN001" || skuUp === "MONITOR D-MN001") return "MONITOR D-MN001";
-
+    if (skuUp === "KP-LB521" || skuUp === "LB-521") {
+      return "LB-521";
+    }
+    if (skuUp === "KP-PN899" || skuUp === "PN-899") {
+      return "PN-899PD";
+    }
+    if (skuUp === "PROT. AURICULAR" || skuUp === "PROT AURICULAR") {
+      return "PROTETOR AURICULAR";
+    }
+    if (skuUp === "D-MN001" || skuUp === "MONITOR D-MN001") {
+      return "MONITOR D-MN001";
+    }
     if (skuUp === "XKO01PRETO") {
       const corText = corPretty || "PRETO";
-      return `XKO01PRETO (${corText})`;
+      return "XKO01PRETO (" + corText + ")";
+    }
+    if (skuUp === "CS-30") {
+      return "CS-30";
+    }
+    if (skuUp === "RO-832") {
+      return "RO-832";
+    }
+    if (skuUp === "PG-9023S") {
+      return "PG-9023S";
+    }
+    if (skuUp === "M-303") {
+      return "M-303";
+    }
+    if (skuUp === "FONE" || skuUp === "FONE LEBOSS") {
+      return "FONE LEBOSS";
     }
 
-    if (skuUp === "CS-30") return "CS-30";
-    if (skuUp === "RO-832") return "RO-832";
-    if (skuUp === "PG-9023S") return "PG-9023S";
-    if (skuUp === "M-303") return "M-303";
-    if (skuUp === "FONE" || skuUp === "FONE LEBOSS") return "FONE LEBOSS";
-
-    if (corPretty) return `${skuUp} (${corPretty})`;
+    if (corPretty) {
+      return skuUp + " (" + corPretty + ")";
+    }
     return skuUp;
   }
 
-  // base genérica do SKU (para casar 3142 com D-3142, D-3204 com D-3204+MIC etc)
-  function baseSku(txt) {
-    if (!txt) return "";
-    let t = txt.toUpperCase();
-    t = t.replace(/\([^)]*\)/g, ""); // tira (COR)
-    t = t.replace(/\s+/g, "");
-    const m = t.match(/[0-9]/);
-    if (m) t = t.slice(m.index);  // corta prefixo D-, KP-, etc.
-    return t;
-  }
-
-  function extrairCorDeSkuPdf(skuPdf) {
-    if (!skuPdf) return "";
-    const m = skuPdf.match(/\(([^)]+)\)/);
-    if (!m) return "";
-    return normalizarCorCanon(m[1]);
-  }
-
-  function normalizarTexto(txt) {
-    return txt ? txt.toString().trim().toUpperCase() : "";
-  }
-
-  // ============================================================
-  // 3) Beeps (som de bip)
-  // ============================================================
-  let audioCtx = null;
-  function playBeep(freq = 880, duration = 0.15) {
-    try {
-      if (!audioCtx) {
-        const AC = window.AudioContext || window.webkitAudioContext;
-        audioCtx = new AC();
-      }
-      const osc = audioCtx.createOscillator();
-      const gain = audioCtx.createGain();
-      osc.connect(gain);
-      gain.connect(audioCtx.destination);
-      osc.frequency.value = freq;
-      gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + duration);
-      osc.start();
-      osc.stop(audioCtx.currentTime + duration);
-    } catch (e) {
-      // se o navegador bloquear áudio, apenas ignora
-    }
-  }
-
-  // ============================================================
-  // 4) Inicialização e render da tabela
-  // ============================================================
+  // =========================
+  // 4) Inicializar itens com a planilha embutida
+  // =========================
   function inicializarItens() {
     itens = itensBasePlanilha.map(obj => ({
       id: proximoId++,
-      sku: obj.sku,
-      cor: obj.cor,
+      skuBase: obj.sku,
+      corBase: obj.cor,
+      skuEtiqueta: adaptarSkuParaPdf(obj.sku, obj.cor),
       qty: obj.qty,
       bipado: 0
     }));
     renderTabela();
   }
 
+  // =========================
+  // 5) Renderização da tabela de estoque
+  // =========================
   function renderTabela() {
     tbodyItens.innerHTML = "";
+
     const ordenados = [...itens].sort((a, b) => {
-      const sA = a.sku.toUpperCase();
-      const sB = b.sku.toUpperCase();
+      const sA = a.skuBase.toUpperCase();
+      const sB = b.skuBase.toUpperCase();
       if (sA < sB) return -1;
       if (sA > sB) return 1;
-      const cA = (a.cor || "").toUpperCase();
-      const cB = (b.cor || "").toUpperCase();
+      const cA = (a.corBase || "").toUpperCase();
+      const cB = (b.corBase || "").toUpperCase();
       if (cA < cB) return -1;
       if (cA > cB) return 1;
       return 0;
     });
 
-    ordenados.forEach((item, idx) => {
-      const tr = document.createElement("tr");
+    ordenados.forEach((item, index) => {
+      const tr = document.createElement('tr');
 
+      const bip = item.bipado || 0;
       const esperado = Number(item.qty) || 0;
-      const bip = Number(item.bipado) || 0;
+      const restante = Math.max(esperado - bip, 0);
 
       let status = "";
       let badgeClass = "";
       let rowClass = "";
+
       if (esperado === 0 && bip === 0) {
         status = "Sem quantidade";
       } else if (bip === 0 && esperado > 0) {
@@ -530,55 +603,58 @@
 
       tr.className = rowClass;
 
-      const tdIdx = document.createElement("td");
-      tdIdx.textContent = idx + 1;
+      const tdIdx = document.createElement('td');
+      tdIdx.textContent = index + 1;
       tr.appendChild(tdIdx);
 
-      const tdSku = document.createElement("td");
-      tdSku.textContent = item.sku;
+      const tdSku = document.createElement('td');
+      tdSku.textContent = item.skuBase;
       tr.appendChild(tdSku);
 
-      const tdCor = document.createElement("td");
-      tdCor.textContent = item.cor || "-";
+      const tdCor = document.createElement('td');
+      tdCor.textContent = item.corBase || "-";
       tr.appendChild(tdCor);
 
-      const tdSkuPdf = document.createElement("td");
-      tdSkuPdf.textContent = adaptarSkuParaPdf(item.sku, item.cor);
-      tr.appendChild(tdSkuPdf);
+      const tdSkuEt = document.createElement('td');
+      tdSkuEt.textContent = item.skuEtiqueta;
+      tr.appendChild(tdSkuEt);
 
-      const tdQtd = document.createElement("td");
-      const inputQtd = document.createElement("input");
+      const tdQtd = document.createElement('td');
+      const inputQtd = document.createElement('input');
       inputQtd.type = "number";
       inputQtd.min = "0";
       inputQtd.value = item.qty;
-      inputQtd.style.width = "70px";
-      inputQtd.addEventListener("change", () => {
+      inputQtd.style.width = "80px";
+      inputQtd.addEventListener('change', () => {
         item.qty = Number(inputQtd.value) || 0;
         renderTabela();
       });
       tdQtd.appendChild(inputQtd);
       tr.appendChild(tdQtd);
 
-      const tdBip = document.createElement("td");
+      const tdBip = document.createElement('td');
       tdBip.textContent = bip;
       tr.appendChild(tdBip);
 
-      const tdStatus = document.createElement("td");
+      const tdRest = document.createElement('td');
+      tdRest.textContent = restante;
+      tr.appendChild(tdRest);
+
+      const tdStatus = document.createElement('td');
       if (status) {
-        const span = document.createElement("span");
+        const span = document.createElement('span');
         span.textContent = status;
         span.className = "badge " + badgeClass;
         tdStatus.appendChild(span);
       }
       tr.appendChild(tdStatus);
 
-      const tdAcoes = document.createElement("td");
+      const tdAcoes = document.createElement('td');
       tdAcoes.className = "row-actions";
-      const btnRemover = document.createElement("button");
+      const btnRemover = document.createElement('button');
       btnRemover.textContent = "Remover";
-      btnRemover.addEventListener("click", () => {
-        itens = itens.filter(it => it.id !== item.id);
-        renderTabela();
+      btnRemover.addEventListener('click', () => {
+        removerItemPorId(item.id);
       });
       tdAcoes.appendChild(btnRemover);
       tr.appendChild(tdAcoes);
@@ -593,35 +669,38 @@
     const totalItens = itens.length;
     const totalQtd = itens.reduce((s, it) => s + (Number(it.qty) || 0), 0);
     const totalBip = itens.reduce((s, it) => s + (Number(it.bipado) || 0), 0);
+    const totalRest = itens.reduce((s, it) => s + Math.max((Number(it.qty) || 0) - (Number(it.bipado) || 0), 0), 0);
 
     resumoDiv.innerHTML =
-      `<b>Total de variações:</b> ${totalItens} | ` +
-      `<b>Qtd esperada total:</b> ${totalQtd} | ` +
-      `<b>Qtd bipada total:</b> ${totalBip}`;
+      `<p><b>Total de variações (linhas):</b> ${totalItens}<br>` +
+      `<b>Total de peças (quantidade esperada):</b> ${totalQtd}<br>` +
+      `<b>Total de peças bipadas:</b> ${totalBip}<br>` +
+      `<b>Total de peças restantes:</b> ${totalRest}</p>`;
   }
 
-  // ============================================================
-  // 5) Adicionar / atualizar itens manualmente
-  // ============================================================
-  document.getElementById("btnAdicionar").addEventListener("click", () => {
-    const sku = document.getElementById("novoSku").value.trim();
-    const cor = document.getElementById("novaCor").value.trim();
-    const qtd = Number(document.getElementById("novaQtd").value) || 0;
+  // =========================
+  // 6) Adicionar / atualizar / remover manualmente
+  // =========================
+  document.getElementById('btnAdicionar').addEventListener('click', function() {
+    const sku = document.getElementById('novoSku').value.trim();
+    const cor = document.getElementById('novaCor').value.trim();
+    const qtd = Number(document.getElementById('novaQtd').value) || 0;
 
     if (!sku) {
-      alert("Informe o SKU.");
+      alert("Informe o SKU base.");
       return;
     }
-    adicionarOuAtualizarItem(sku, cor, qtd, true);
+
+    adicionarOuAtualizarItemBase(sku, cor, qtd, true);
   });
 
-  function adicionarOuAtualizarItem(sku, cor, qty, renderDepois) {
-    const skuNorm = normalizarTexto(sku);
-    const corNorm = normalizarTexto(cor);
+  function adicionarOuAtualizarItemBase(skuBase, corBase, qty, renderDepois) {
+    const skuNorm = normalizarTexto(skuBase);
+    const corNorm = normalizarTexto(corBase);
 
     let itemExistente = itens.find(it =>
-      normalizarTexto(it.sku) === skuNorm &&
-      normalizarTexto(it.cor) === corNorm
+      normalizarTexto(it.skuBase) === skuNorm &&
+      normalizarTexto(it.corBase) === corNorm
     );
 
     if (itemExistente) {
@@ -629,8 +708,9 @@
     } else {
       itens.push({
         id: proximoId++,
-        sku: sku,
-        cor: cor,
+        skuBase: skuBase,
+        corBase: corBase,
+        skuEtiqueta: adaptarSkuParaPdf(skuBase, corBase),
         qty: qty,
         bipado: 0
       });
@@ -638,167 +718,176 @@
 
     if (renderDepois) {
       renderTabela();
-      document.getElementById("novoSku").value = "";
-      document.getElementById("novaCor").value = "";
-      document.getElementById("novaQtd").value = 300;
+      document.getElementById('novoSku').value = "";
+      document.getElementById('novaCor').value = "";
+      document.getElementById('novaQtd').value = 300;
     }
   }
 
-  // ============================================================
-  // 6) Encontrar item pelo SKU lido do PDF
-  // ============================================================
-  function encontrarItemPorSkuPdf(skuPdf) {
-    const skuPdfNorm = normalizarTexto(skuPdf);
-    const basePdf = baseSku(skuPdfNorm);
-    const corPdfCanon = extrairCorDeSkuPdf(skuPdfNorm);
-
-    // 1º tentativa: bater exatamente com o SKU padrão de etiqueta
-    let candidatos = itens.filter(it =>
-      normalizarTexto(adaptarSkuParaPdf(it.sku, it.cor)) === skuPdfNorm
-    );
-    if (candidatos.length === 1) return candidatos[0];
-
-    // 2ª tentativa: usar baseSku + cor
-    candidatos = itens.filter(it => {
-      const baseItem = baseSku(it.sku);
-      const corItem = normalizarCorCanon(it.cor);
-      if (baseItem !== basePdf) return false;
-      if (!corPdfCanon) return true; // etiqueta sem cor explícita
-      return corItem === corPdfCanon;
-    });
-
-    if (candidatos.length === 1) return candidatos[0];
-    return null; // não encontrado ou ambíguo
+  function removerItemPorId(id) {
+    itens = itens.filter(it => it.id !== id);
+    renderTabela();
   }
 
-  // ============================================================
-  // 7) Leitura de PDFs com pdf.js
-  // ============================================================
-  pdfjsLib.GlobalWorkerOptions.workerSrc =
-    "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.2.67/pdf.worker.min.js";
+  // =========================
+  // 7) Log de etiquetas
+  // =========================
+  function adicionarLogEntrada(tipo, mensagem) {
+    const div = document.createElement('div');
+    div.textContent = mensagem;
+    if (tipo === 'ok') div.className = 'log-entry-ok';
+    else if (tipo === 'dup') div.className = 'log-entry-dup';
+    else if (tipo === 'erro') div.className = 'log-entry-erro';
+    logEtiquetas.prepend(div); // mais recente em cima
+  }
 
-  document.getElementById("btnProcessarPdf").addEventListener("click", async () => {
-    const input = document.getElementById("inputPdf");
-    if (!input.files || input.files.length === 0) {
-      alert("Selecione pelo menos um PDF.");
+  // =========================
+  // 8) Processamento dos PDFs (pdf.js)
+  // =========================
+  const inputPDF = document.getElementById('inputPDF');
+  const btnProcessarPDFs = document.getElementById('btnProcessarPDFs');
+
+  btnProcessarPDFs.addEventListener('click', async function() {
+    const files = inputPDF.files;
+    if (!files || files.length === 0) {
+      alert("Selecione pelo menos um PDF de etiquetas.");
       return;
     }
-    logLeitura.textContent = "";
-    statusPdf.textContent = "Processando PDFs, aguarde...";
+
+    if (!window['pdfjsLib']) {
+      alert("pdf.js não está carregado. Verifique a conexão ou o script no topo do arquivo.");
+      return;
+    }
+
+    infoPDF.textContent = "Processando PDFs...";
+
     let totalPaginas = 0;
-    let etiquetasLidas = 0;
-    let duplicadas = 0;
-    let naoEncontradas = 0;
+    let totalEtiquetasOk = 0;
 
-    for (const file of input.files) {
-      const arrayBuf = await file.arrayBuffer();
-      const pdf = await pdfjsLib.getDocument({ data: arrayBuf }).promise;
-      totalPaginas += pdf.numPages;
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      try {
+        const arrayBuffer = await file.arrayBuffer();
+        const pdf = await pdfjsLib.getDocument({data: arrayBuffer}).promise;
+        const numPages = pdf.numPages;
+        totalPaginas += numPages;
 
-      for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-        const page = await pdf.getPage(pageNum);
-        const textContent = await page.getTextContent();
-        const pageText = textContent.items.map(it => it.str).join("\n");
-        const resultado = processarPaginaTexto(pageText);
+        for (let pageNum = 1; pageNum <= numPages; pageNum++) {
+          const page = await pdf.getPage(pageNum);
+          const textContent = await page.getTextContent();
+          const texto = textContent.items.map(it => it.str).join('\n');
 
-        if (resultado) {
-          const { skuPdf, qtd, rastreio } = resultado;
-          etiquetasLidas++;
-
-          // controle de duplicidade por rastreio
-          let duplicada = false;
-          if (rastreio) {
-            if (rastreiosLidos.has(rastreio)) {
-              duplicada = true;
-              duplicadas++;
-              playBeep(220); // bip grave = duplicado
-              log(`DUPLICADO  [${rastreio}]  SKU: ${skuPdf}  QTD: ${qtd}  (arquivo: ${file.name}, página: ${pageNum})`);
-            } else {
-              rastreiosLidos.add(rastreio);
-            }
+          const resultado = processarTextoEtiqueta(texto);
+          if (resultado && resultado.length > 0) {
+            totalEtiquetasOk += resultado.length;
           }
-
-          if (!duplicada) {
-            const item = encontrarItemPorSkuPdf(skuPdf);
-            if (item) {
-              item.bipado = (item.bipado || 0) + qtd;
-              playBeep(880); // bip agudo = ok
-              log(`OK         [${rastreio || "sem rastreio"}]  SKU: ${skuPdf}  QTD: ${qtd}  -> somado em ${item.sku} (${item.cor || "-"})`);
-            } else {
-              naoEncontradas++;
-              playBeep(660); // meio termo = SKU não achado
-              log(`NAO ENCONTRADO  [${rastreio || "sem rastreio"}]  SKU etiqueta: ${skuPdf}  QTD: ${qtd}  (arquivo: ${file.name}, página: ${pageNum})`);
-            }
-          }
-        } else {
-          // página sem linha de SKU: só ignora
         }
+      } catch (e) {
+        console.error(e);
+        adicionarLogEntrada('erro', `Erro ao processar PDF "${file.name}": ${e}`);
       }
     }
 
     renderTabela();
-    statusPdf.textContent =
-      `Concluído. Páginas: ${totalPaginas}, Etiquetas lidas: ${etiquetasLidas}, ` +
-      `Duplicadas: ${duplicadas}, SKU não encontrados: ${naoEncontradas}.`;
+    infoPDF.textContent =
+      `Processamento concluído. PDFs: ${files.length}, páginas: ${totalPaginas}, etiquetas reconhecidas: ${totalEtiquetasOk}.`;
   });
 
-  // processa texto de UMA página
-  function processarPaginaTexto(pageText) {
-    const linhas = pageText.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
-
-    let skuLinha = null;
-    let qtd = 0;
-
-    for (let i = 0; i < linhas.length; i++) {
-      const line = linhas[i];
-
-      // tenta localizar "SKU:" e pegar a linha seguinte "1. .... *Q"
-      if (line.startsWith("SKU:")) {
-        for (let j = i + 1; j < Math.min(i + 6, linhas.length); j++) {
-          const l2 = linhas[j];
-          const m = l2.match(/^1\.\s+(.+?)\s*\*([0-9]+)\s*$/);
-          if (m) {
-            skuLinha = m[1].trim();
-            qtd = parseInt(m[2], 10);
-            break;
-          }
-        }
-      }
+  // Função que lê o texto completo de uma página de etiqueta
+  // e tenta achar:
+  //  - código de rastreio na linha com "#UP2F..."
+  //  - linha "1. ALGUM SKU AQUI *QTD"
+  function processarTextoEtiqueta(textoPagina) {
+    // 1) Código de rastreio
+    // exemplo: "SKU: 1; Total Items: 1; #UP2F42333526; Deadline:04/11/2025"
+    let codigoRastreio = null;
+    const regexRastreio = /#([A-Z0-9]+)/;
+    const matchRast = textoPagina.match(regexRastreio);
+    if (matchRast) {
+      codigoRastreio = matchRast[1];
     }
 
-    if (!skuLinha || !qtd) {
-      return null;
-    }
+    // 2) Linhas de SKU: procuramos padrões "1. ALGUM TEXTO *NUM"
+    const linhas = textoPagina.split(/\r?\n/);
+    const resultados = [];
 
-    // tenta achar código de rastreio na página (BR###########X, TXAS..., etc.)
-    let rastreio = null;
-    for (const l of linhas) {
-      const m = l.match(/\bBR[0-9A-Z]{11,}\b/);
+    const regexSkuLinha = /^\s*\d+\.\s*([^\*]+?)\s*\*(\d+)\s*$/;
+
+    for (const linha of linhas) {
+      const m = linha.match(regexSkuLinha);
       if (m) {
-        rastreio = m[0];
-        break;
-      }
-    }
-    // se não achou BR..., tenta algo tipo TXAS...
-    if (!rastreio) {
-      for (const l of linhas) {
-        const m = l.match(/\bTX[A-Z0-9]{6,}\b/i);
-        if (m) {
-          rastreio = m[0];
-          break;
-        }
+        const skuEtiquetaLido = m[1].trim();   // exemplo: "CS-30" ou "D-Y03LARANJA (LARANJA)"
+        const qtd = parseInt(m[2], 10) || 0;
+
+        const status = registrarSaidaPorEtiqueta(skuEtiquetaLido, qtd, codigoRastreio);
+        resultados.push({ skuEtiqueta: skuEtiquetaLido, qtd, codigoRastreio, status });
       }
     }
 
-    return { skuPdf: skuLinha, qtd, rastreio };
+    return resultados;
   }
 
-  function log(msg) {
-    logLeitura.textContent += msg + "\n";
-    logLeitura.scrollTop = logLeitura.scrollHeight;
+  // =========================
+  // 9) Registrar saída de estoque a partir da etiqueta
+  // =========================
+  function registrarSaidaPorEtiqueta(skuEtiquetaLido, qtd, codigoRastreio) {
+    const skuLabelNorm = normalizarTexto(skuEtiquetaLido);
+
+    // Checar duplicidade de código de rastreio (se existir)
+    let duplicado = false;
+    if (codigoRastreio) {
+      if (codigosRastreioLidos.has(codigoRastreio)) {
+        duplicado = true;
+      } else {
+        codigosRastreioLidos.add(codigoRastreio);
+      }
+    }
+
+    // Tenta encontrar o item pelo SKU de etiqueta
+    let item = itens.find(it => normalizarTexto(it.skuEtiqueta) === skuLabelNorm);
+
+    if (!item) {
+      // SKU não encontrado
+      const msg = `SKU etiqueta NÃO encontrado: "${skuEtiquetaLido}" (qtd=${qtd})` +
+        (codigoRastreio ? ` | rastreio: ${codigoRastreio}` : "");
+      adicionarLogEntrada('erro', msg);
+      tocarBeepErro();
+      return 'nao_encontrado';
+    }
+
+    if (duplicado) {
+      const msg = `DUPLICADO: rastreio ${codigoRastreio} | SKU etiqueta: "${skuEtiquetaLido}" | qtd=${qtd}`;
+      adicionarLogEntrada('dup', msg);
+      tocarBeepErro();
+      return 'duplicado';
+    }
+
+    // Se não for duplicado, soma ao bipado
+    item.bipado = (item.bipado || 0) + qtd;
+
+    const esperado = Number(item.qty) || 0;
+    const bip = item.bipado;
+
+    let msgStatus = "";
+    if (bip > esperado && esperado > 0) {
+      msgStatus = `ALERTA EXCESSO: "${item.skuEtiqueta}" bipado ${bip}/${esperado}` +
+        (codigoRastreio ? ` | rastreio: ${codigoRastreio}` : "");
+    } else if (bip === esperado && esperado > 0) {
+      msgStatus = `OK COMPLETO: "${item.skuEtiqueta}" atingiu ${bip}/${esperado}` +
+        (codigoRastreio ? ` | rastreio: ${codigoRastreio}` : "");
+    } else {
+      msgStatus = `PENDENTE: "${item.skuEtiqueta}" bipado ${bip}/${esperado}` +
+        (codigoRastreio ? ` | rastreio: ${codigoRastreio}` : "");
+    }
+
+    adicionarLogEntrada('ok', msgStatus);
+    tocarBeepSucesso();
+    return 'ok';
   }
 
-  // Inicialização
+  // =========================
+  // 10) Inicialização geral
+  // =========================
   inicializarItens();
 </script>
 </body>
