@@ -2,8 +2,12 @@
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8">
-  <title>Controle de Bipagem - QR + OCR (SKU / Quantidade / Rastreio)</title>
+  <title>Controle de Estoque - Bipagem (Câmera + OCR + QR)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- Leitor de QRCode / códigos de barras -->
+  <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+  <!-- OCR de texto da etiqueta -->
+  <script src="https://unpkg.com/tesseract.js@v5.0.3/dist/tesseract.min.js"></script>
   <style>
     body {
       font-family: Arial, sans-serif;
@@ -15,16 +19,24 @@
       margin: 0 auto;
       background: #fff;
       padding: 10px;
-      border-radius: 8px;
-      box-shadow: 0 2px 4px rgba(0,0,0,0.08);
+      border-radius: 6px;
+      box-shadow: 0 0 5px rgba(0,0,0,0.08);
     }
-    h1, h2 {
+    h1 {
       font-size: 20px;
-      margin: 10px 0;
+      margin: 5px 0 10px;
+    }
+    h2 {
+      font-size: 18px;
+      margin: 15px 0 6px;
     }
     p {
-      margin: 6px 0;
+      margin: 4px 0;
       font-size: 14px;
+    }
+    .small {
+      font-size: 12px;
+      color: #555;
     }
     input, button {
       font-size: 14px;
@@ -37,16 +49,23 @@
     }
     button {
       cursor: pointer;
-      border-radius: 6px;
-      border: none;
-      background: #1976d2;
-      color: #fff;
+      border-radius: 4px;
+      border: 1px solid #ccc;
+      background: #f0f0f0;
     }
-    button.secondary {
-      background: #555;
+    button.primary {
+      background: #007bff;
+      color: #fff;
+      border-color: #0066d6;
+    }
+    button.danger {
+      background: #f44336;
+      color: #fff;
+      border-color: #d32f2f;
     }
     button:disabled {
-      background: #aaa;
+      opacity: 0.5;
+      cursor: default;
     }
     table {
       width: 100%;
@@ -65,29 +84,19 @@
       top: 0;
       z-index: 1;
     }
-    .small {
-      font-size: 12px;
-      color: #666;
-    }
     .row-actions button {
       font-size: 12px;
-      padding: 3px 6px;
-      background: #c62828;
+      padding: 2px 5px;
     }
-    .row-actions button.editar {
-      background: #f9a825;
-      margin-right: 4px;
-    }
-    .toolbar {
-      display: flex;
-      flex-wrap: wrap;
+    .form-grid {
+      display: grid;
+      grid-template-columns: 2fr 2fr 1fr auto;
       gap: 6px;
       align-items: center;
-      margin: 6px 0;
     }
-    .ok    { background: #e0ffe0; }
+    .ok { background: #e0ffe0; }
     .pendente { background: #fffbe0; }
-    .alerta   { background: #ffe0e0; }
+    .alerta { background: #ffe0e0; }
     .badge {
       display: inline-block;
       padding: 2px 6px;
@@ -97,78 +106,89 @@
     .badge-ok { background: #c6f6c6; }
     .badge-pendente { background: #fff2b3; }
     .badge-alerta { background: #ffc4c4; }
-
-    #reader {
+    .section-box {
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      padding: 8px;
+      margin-top: 8px;
+      background: #fafafa;
+    }
+    .flex {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .flex > div {
+      flex: 1;
+      min-width: 220px;
+    }
+    #qrReader {
       width: 260px;
       max-width: 100%;
-      margin-top: 8px;
+      margin-top: 5px;
     }
-
-    #ocrPreview {
+    #videoOcr {
+      width: 260px;
       max-width: 100%;
-      max-height: 250px;
-      margin-top: 8px;
-      border: 1px solid #ccc;
+      background: #000;
       border-radius: 4px;
     }
-
-    .chip {
-      display: inline-block;
-      padding: 2px 6px;
-      border-radius: 999px;
+    #ocrText {
+      white-space: pre-wrap;
+      max-height: 100px;
+      overflow: auto;
+      background: #fff;
       border: 1px solid #ccc;
-      margin: 2px;
+      padding: 4px;
       font-size: 11px;
-      background: #fafafa;
+      margin-top: 4px;
     }
   </style>
 </head>
 <body>
 <div class="container">
-  <h1>Controle de Bipagem - Etiqueta Completa (Texto + QR)</h1>
-
+  <h1>Controle de Estoque - Bipagem (Câmera + OCR + QR)</h1>
   <p class="small">
-    Fluxo pensado pras suas etiquetas Shopee:<br>
-    • <b>Leitor OCR da etiqueta inteira</b> → separa linhas tipo <code>1. CS-30 *1</code> e atualiza o estoque.<br>
-    • <b>Leitor de QR code</b> → pega código de rastreio (ex: <code>BR25...</code>) e marca duplicidade.<br>
-    • Estoque inicial vem da sua planilha <b>Planilha SKU.xlsx</b> (lista de SKUs já embutida no código).
+    • Estoque carregado a partir dos SKUs da planilha (embutidos no código).<br>
+    • Bipagem via teclado/leitor, via OCR da etiqueta (<code>1. SKU *QTD</code>) e via QR code (controle de duplicidade).<br>
+    • Beep sonoro para sucesso e erro.
   </p>
 
-  <!-- RESUMO -->
-  <div id="resumo"></div>
-
-  <!-- ÁREA DE CONTROLE DE ESTOQUE MANUAL -->
-  <h2>1) Adicionar / atualizar / excluir itens manualmente</h2>
+  <!-- 1) Adicionar / atualizar itens -->
+  <h2>1) Adicionar / atualizar itens</h2>
   <p class="small">
-    Aqui você pode incluir SKUs novos, ajustar quantidade esperada, ou remover linhas.
+    Se você adicionar um SKU + Cor que já existe, a quantidade esperada será atualizada (o “bipado” é mantido).
   </p>
-  <div class="toolbar">
-    <div style="flex:1; min-width:150px;">
-      <label>SKU (planilha)</label><br>
-      <input type="text" id="novoSku" placeholder="Ex: D-Y03, KP-RO833, ON-FN632...">
+  <div class="section-box">
+    <div class="form-grid">
+      <div>
+        <label>SKU (planilha)</label><br>
+        <input type="text" id="novoSku" placeholder="Ex: KP-7023, D-Y03, ON-FN632, TE-115...">
+      </div>
+      <div>
+        <label>Cor (planilha)</label><br>
+        <input type="text" id="novaCor" placeholder="Ex: PRETO, BCO, AZUL, ROSA, VERDE...">
+      </div>
+      <div>
+        <label>Quantidade</label><br>
+        <input type="number" id="novaQtd" value="300" min="0">
+      </div>
+      <div>
+        <button id="btnAdicionar" class="primary">Adicionar / Atualizar</button>
+      </div>
     </div>
-    <div style="flex:1; min-width:100px;">
-      <label>Cor (planilha)</label><br>
-      <input type="text" id="novaCor" placeholder="Ex: PRETO, AZUL, ROSA...">
-    </div>
-    <div style="width:120px;">
-      <label>Quantidade</label><br>
-      <input type="number" id="novaQtd" value="300" min="0">
-    </div>
-    <div>
-      <button id="btnAdicionar">Adicionar / Atualizar</button>
-    </div>
+    <div id="resumo" class="small"></div>
   </div>
 
-  <!-- TABELA DE ITENS -->
-  <h2>2) Itens em estoque (variações SKU + cor)</h2>
-  <div style="max-height: 330px; overflow:auto;">
-    <table id="tabelaItens">
+  <!-- 2) Itens em estoque -->
+  <h2>2) Itens em estoque</h2>
+  <div class="section-box" style="max-height: 320px; overflow:auto;">
+    <table>
       <thead>
       <tr>
         <th>#</th>
         <th>SKU (planilha)</th>
-        <th>Cor</th>
+        <th>Cor (planilha)</th>
         <th>SKU p/ bipagem (padrão PDF)</th>
         <th>Qtd esperada</th>
         <th>Bipado</th>
@@ -180,80 +200,88 @@
     </table>
   </div>
 
-  <!-- LEITOR POR CÓDIGO DE BARRAS / QR (html5-qrcode) -->
-  <h2>3) Leitura por QR code (rastreio)</h2>
-  <p class="small">
-    Esse modo lê apenas o <b>QR code</b> da etiqueta para obter o código de rastreio (ex: <code>BR25...</code>).
-    Se o mesmo código for lido duas vezes, ele avisa <b>duplicado</b>.
-  </p>
-  <div class="toolbar">
-    <button id="btnCameraQR">Abrir câmera (QR)</button>
-    <button id="btnFecharQR" class="secondary" disabled>Fechar câmera QR</button>
+  <!-- 3) Bipagem via teclado/leitor -->
+  <h2>3) Bipagem via leitor/teclado</h2>
+  <div class="section-box">
+    <p class="small">
+      Deixe o campo abaixo focado e use o leitor (ou digite) o SKU:<br>
+      • SKU p/ bipagem completo (ex: <code>D-Y03LARANJA (LARANJA)</code>)<br>
+      • ou só o SKU da planilha (ex: <code>D-Y03</code>, <code>ON-FN632</code>, <code>TE-115</code>)<br>
+      Se encontrar exatamente 1 item, soma +1 no “Bipado”.
+    </p>
+    <input id="campoBipagem" placeholder="Bipe / digite aqui e Enter">
+    <div id="infoBipagem" class="small"></div>
   </div>
-  <div id="reader"></div>
-  <div id="infoQr" class="small"></div>
-  <div id="listaRastreios" class="small"></div>
 
-  <!-- LEITOR DE TEXTO (OCR) PARA ETIQUETA INTEIRA -->
-  <h2>4) Ler etiqueta inteira (OCR texto) → SKU + quantidade</h2>
-  <p class="small">
-    Esse modo tira uma foto da etiqueta, faz OCR e procura padrões
-    <code>1. ALGUM-SKU (COR) *QTD</code>.<br>
-    Ele extrai o <b>SKU completo</b> e a <b>quantidade</b>, depois soma no “Bipado”.
-  </p>
-
-  <div class="toolbar">
-    <button id="btnCameraOCR">Tirar foto da etiqueta (abrir câmera)</button>
-    <input type="file" id="inputOCR" accept="image/*" capture="environment" style="display:none;">
+  <!-- 4) Leitura por QR code (duplicidade) -->
+  <h2>4) Leitor de QR code (duplicidade de etiqueta)</h2>
+  <div class="section-box">
+    <p class="small">
+      Usa o QR da etiqueta (aquele que hoje retorna algo como <code>BR254063667006F</code>) só para controle de duplicidade.<br>
+      Se o mesmo QR for lido novamente, avisa “produto duplicado” e toca um beep de erro.<br>
+      Há um intervalo mínimo de <b>5 segundos</b> entre leituras válidas para evitar repetição acidental.
+    </p>
+    <button id="btnQrIniciar" class="primary">Iniciar câmera QR</button>
+    <button id="btnQrParar" class="danger" disabled>Parar câmera QR</button>
+    <div id="qrInfo" class="small"></div>
+    <div id="qrReader"></div>
   </div>
-  <img id="ocrPreview" alt="" style="display:none;">
-  <div id="infoOcr" class="small"></div>
 
-  <!-- LEITOR POR TEXTO (campo manual) -->
-  <h2>5) Bipagem direta (campo texto / leitor via teclado)</h2>
-  <p class="small">
-    Se o leitor de código de barras atuar como teclado, deixe esse campo focado e bipar.<br>
-    Você também pode colar algo no formato da etiqueta, como:
-    <code>1. TE-124 (Iluminação RGB Gamer) *3</code>.
-  </p>
-  <div class="toolbar">
-    <input id="campoBipagem" placeholder="Bipe ou cole linha aqui e pressione Enter">
+  <!-- 5) Leitura por câmera + OCR da etiqueta -->
+  <h2>5) Leitura de etiqueta (OCR - SKU e quantidade)</h2>
+  <div class="section-box">
+    <p class="small">
+      Este modo tira uma “foto” da etiqueta, roda OCR e procura linhas como:<br>
+      <code>1. CS-30 *1</code>, <code>1. D-Y03LARANJA (LARANJA) *2</code><br>
+      Ele extrai:<br>
+      • SKU completo (entre <b>1.</b> e <b>*</b>)<br>
+      • Quantidade (número após <b>*</b>)<br>
+      E soma essa quantidade no item correspondente da tabela.<br><br>
+      Os SKUs das etiquetas ficam logo abaixo de “SKU: 1; …” e na mesma linha do “*1”.
+    </p>
+    <div class="flex">
+      <div>
+        <video id="videoOcr" autoplay muted playsinline></video><br>
+        <button id="btnOcrIniciar" class="primary">Iniciar câmera OCR</button>
+        <button id="btnOcrCapturar">Capturar etiqueta (OCR)</button>
+        <button id="btnOcrParar" class="danger">Parar câmera OCR</button>
+        <div id="ocrStatus" class="small"></div>
+      </div>
+      <div>
+        <b>Texto OCR bruto (debug):</b>
+        <div id="ocrText"></div>
+      </div>
+    </div>
+    <canvas id="canvasOcr" style="display:none;"></canvas>
   </div>
-  <div id="infoBipagem" class="small"></div>
-
-  <!-- SONS (OK / ERRO) -->
-  <audio id="somOk"></audio>
-  <audio id="somErro"></audio>
-
 </div>
 
-<!-- SCRIPTS EXTERNOS -->
-<script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
-<script src="https://unpkg.com/tesseract.js@5/dist/tesseract.min.js"></script>
-
 <script>
-  // ==========================================
-  // 0) ESTRUTURA BÁSICA DE DADOS
-  // ==========================================
-  let itens = []; // {id, sku, cor, qty, bipado}
-  let proximoId = 1;
+  // =========================
+  // 0) Beep sonoro
+  // =========================
+  function beep(tipo) {
+    try {
+      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const duration = 0.12;
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = 'square';
+      osc.frequency.value = (tipo === 'erro') ? 220 : 880;
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      gain.gain.setValueAtTime(0.12, audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+      osc.start();
+      osc.stop(audioCtx.currentTime + duration);
+    } catch (e) {
+      console.error('Erro beep:', e);
+    }
+  }
 
-  let rastreios = [];          // lista para exibir na tela
-  const rastreiosLidos = new Set(); // para checar duplicidade
-
-  const tbodyItens        = document.getElementById('tbodyItens');
-  const resumoDiv         = document.getElementById('resumo');
-  const campoBipagem      = document.getElementById('campoBipagem');
-  const infoBipagem       = document.getElementById('infoBipagem');
-  const infoQr            = document.getElementById('infoQr');
-  const listaRastreiosDiv = document.getElementById('listaRastreios');
-  const infoOcr           = document.getElementById('infoOcr');
-  const ocrPreview        = document.getElementById('ocrPreview');
-
-  // ==========================================
-  // 1) LISTA DE ITENS DA PLANILHA (300 cada)
-  // (baseada naquele HTML grande que você já tinha)
-  // ==========================================
+  // =========================
+  // 1) Dados base (Planilha embutida)
+  // =========================
   const itensBasePlanilha = [
     {"sku": "KP-RO826", "cor": "", "qty": 300},
     {"sku": "KP-RO852", "cor": "", "qty": 300},
@@ -392,28 +420,26 @@
     {"sku": "RO802", "cor": "", "qty": 300}
   ];
 
-  function inicializarItens() {
-    itens = itensBasePlanilha.map(obj => ({
-      id: proximoId++,
-      sku: obj.sku,
-      cor: obj.cor || "",
-      qty: obj.qty || 300,
-      bipado: 0
-    }));
-    renderTabela();
-  }
+  let itens = [];
+  let proximoId = 1;
 
-  // ==========================================
-  // 2) NORMALIZAÇÃO / CORES
-  // ==========================================
-  function normalizarTexto(t) {
-    if (!t) return "";
-    return t.toString().trim().toUpperCase();
+  const tbodyItens = document.getElementById('tbodyItens');
+  const resumoDiv = document.getElementById('resumo');
+  const campoBipagem = document.getElementById('campoBipagem');
+  const infoBipagem = document.getElementById('infoBipagem');
+
+  // =========================
+  // 2) Normalização de texto / cor
+  // =========================
+  function normalizarTexto(txt) {
+    if (!txt) return "";
+    return txt.toString().trim().toUpperCase();
   }
 
   function normalizarCorCanon(cor) {
     if (!cor) return "";
-    let c = normalizarTexto(cor);
+    let c = cor.toString().trim().toUpperCase();
+
     c = c
       .replace(/[ÁÀÂÃ]/g, "A")
       .replace(/[ÉÈÊ]/g, "E")
@@ -421,6 +447,7 @@
       .replace(/[ÓÒÔÕ]/g, "O")
       .replace(/[ÚÙÛ]/g, "U")
       .replace(/Ç/g, "C");
+
     c = c.replace(/\s+/g, " ");
 
     const mapa = {
@@ -457,17 +484,21 @@
     return corCanon.toUpperCase();
   }
 
-  // ==========================================
-  // 3) ADAPTAÇÃO SKU → PADRÃO DA ETIQUETA
-  // ==========================================
+  // =========================
+  // 3) Adaptar SKU -> padrão PDF (para bipagem)
+  // =========================
   function adaptarSkuParaPdf(skuOriginal, corOriginal) {
     if (!skuOriginal) return "";
-    const skuUp = normalizarTexto(skuOriginal);
+    const skuUp = skuOriginal.toString().trim().toUpperCase();
     const corCanon = normalizarCorCanon(corOriginal || "");
     const corPretty = prettyCor(corCanon);
 
-    if (skuUp === "D-3204") return "D-3204+MIC";
-    if (skuUp === "D-3210") return "D-3210 (SEM MICROFONE)";
+    if (skuUp === "D-3204") {
+      return "D-3204+MIC";
+    }
+    if (skuUp === "D-3210") {
+      return "D-3210 (SEM MICROFONE)";
+    }
     if (skuUp === "D-3158" || skuUp === "D-S3158") {
       const base = "D-S3158";
       if (corPretty) return base + " (" + corPretty + ")";
@@ -516,29 +547,49 @@
       const corText = corPretty || "PRETO";
       return "XKO01PRETO (" + corText + ")";
     }
-    if (skuUp === "CS-30") return "CS-30";
-    if (skuUp === "RO-832") return "RO-832";
-    if (skuUp === "PG-9023S") return "PG-9023S";
-    if (skuUp === "M-303") return "M-303";
-    if (skuUp === "FONE" || skuUp === "FONE LEBOSS") return "FONE LEBOSS";
+    if (skuUp === "CS-30") {
+      return "CS-30";
+    }
+    if (skuUp === "RO-832") {
+      return "RO-832";
+    }
+    if (skuUp === "PG-9023S") {
+      return "PG-9023S";
+    }
+    if (skuUp === "M-303") {
+      return "M-303";
+    }
+    if (skuUp === "FONE" || skuUp === "FONE LEBOSS") {
+      return "FONE LEBOSS";
+    }
 
-    if (corPretty) return skuUp + " (" + corPretty + ")";
+    if (corPretty) {
+      return skuUp + " (" + corPretty + ")";
+    }
     return skuUp;
   }
 
-  // ==========================================
-  // 4) TABELA / RESUMO
-  // ==========================================
+  // =========================
+  // 4) Inicialização & render
+  // =========================
+  function inicializarItens() {
+    itens = itensBasePlanilha.map(obj => ({
+      id: proximoId++,
+      sku: obj.sku,
+      cor: obj.cor,
+      qty: obj.qty,
+      bipado: 0
+    }));
+    renderTabela();
+  }
+
   function renderTabela() {
     tbodyItens.innerHTML = "";
-
     const ordenados = [...itens].sort((a, b) => {
-      const sA = a.sku.toUpperCase();
-      const sB = b.sku.toUpperCase();
+      const sA = a.sku.toUpperCase(), sB = b.sku.toUpperCase();
       if (sA < sB) return -1;
       if (sA > sB) return 1;
-      const cA = (a.cor || "").toUpperCase();
-      const cB = (b.cor || "").toUpperCase();
+      const cA = (a.cor || "").toUpperCase(), cB = (b.cor || "").toUpperCase();
       if (cA < cB) return -1;
       if (cA > cB) return 1;
       return 0;
@@ -549,10 +600,7 @@
       const bip = item.bipado || 0;
       const esperado = Number(item.qty) || 0;
 
-      let status = "";
-      let badgeClass = "";
-      let rowClass = "";
-
+      let status = "", badgeClass = "", rowClass = "";
       if (esperado === 0 && bip === 0) {
         status = "Sem quantidade";
       } else if (bip === 0 && esperado > 0) {
@@ -572,31 +620,17 @@
         badgeClass = "badge-alerta";
         rowClass = "alerta";
       }
-
       tr.className = rowClass;
 
-      const tdIdx = document.createElement('td');
-      tdIdx.textContent = idx + 1;
-      tr.appendChild(tdIdx);
-
-      const tdSku = document.createElement('td');
-      tdSku.textContent = item.sku;
-      tr.appendChild(tdSku);
-
-      const tdCor = document.createElement('td');
-      tdCor.textContent = item.cor || "-";
-      tr.appendChild(tdCor);
-
-      const tdSkuPdf = document.createElement('td');
-      tdSkuPdf.textContent = adaptarSkuParaPdf(item.sku, item.cor);
-      tr.appendChild(tdSkuPdf);
+      const tdIdx = document.createElement('td'); tdIdx.textContent = idx + 1; tr.appendChild(tdIdx);
+      const tdSku = document.createElement('td'); tdSku.textContent = item.sku; tr.appendChild(tdSku);
+      const tdCor = document.createElement('td'); tdCor.textContent = item.cor || "-"; tr.appendChild(tdCor);
+      const tdSkuPdf = document.createElement('td'); tdSkuPdf.textContent = adaptarSkuParaPdf(item.sku, item.cor); tr.appendChild(tdSkuPdf);
 
       const tdQtd = document.createElement('td');
       const inputQtd = document.createElement('input');
-      inputQtd.type = "number";
-      inputQtd.min = "0";
-      inputQtd.value = item.qty;
-      inputQtd.style.width = "80px";
+      inputQtd.type = "number"; inputQtd.min = "0";
+      inputQtd.value = item.qty; inputQtd.style.width = "70px";
       inputQtd.addEventListener('change', () => {
         item.qty = Number(inputQtd.value) || 0;
         renderTabela();
@@ -604,9 +638,7 @@
       tdQtd.appendChild(inputQtd);
       tr.appendChild(tdQtd);
 
-      const tdBip = document.createElement('td');
-      tdBip.textContent = bip;
-      tr.appendChild(tdBip);
+      const tdBip = document.createElement('td'); tdBip.textContent = bip; tr.appendChild(tdBip);
 
       const tdStatus = document.createElement('td');
       if (status) {
@@ -619,22 +651,10 @@
 
       const tdAcoes = document.createElement('td');
       tdAcoes.className = "row-actions";
-
-      const btnEditar = document.createElement('button');
-      btnEditar.textContent = "Editar";
-      btnEditar.className = "editar";
-      btnEditar.addEventListener('click', () => {
-        document.getElementById('novoSku').value = item.sku;
-        document.getElementById('novaCor').value = item.cor;
-        document.getElementById('novaQtd').value = item.qty;
-      });
-      tdAcoes.appendChild(btnEditar);
-
       const btnRemover = document.createElement('button');
       btnRemover.textContent = "Remover";
       btnRemover.addEventListener('click', () => removerItemPorId(item.id));
       tdAcoes.appendChild(btnRemover);
-
       tr.appendChild(tdAcoes);
 
       tbodyItens.appendChild(tr);
@@ -648,19 +668,18 @@
     const totalQtd = itens.reduce((s, it) => s + (Number(it.qty) || 0), 0);
     const totalBip = itens.reduce((s, it) => s + (Number(it.bipado) || 0), 0);
     resumoDiv.innerHTML =
-      `<p><b>Variações cadastradas:</b> ${totalItens}<br>` +
-      `<b>Peças esperadas:</b> ${totalQtd}<br>` +
-      `<b>Peças bipadas:</b> ${totalBip}</p>`;
+      `<b>Total de variações:</b> ${totalItens} | ` +
+      `<b>Peças esperadas:</b> ${totalQtd} | ` +
+      `<b>Peças bipadas:</b> ${totalBip}`;
   }
 
-  // ==========================================
-  // 5) ADICIONAR / ATUALIZAR / REMOVER ITENS
-  // ==========================================
-  document.getElementById('btnAdicionar').addEventListener('click', function() {
+  // =========================
+  // 5) Adicionar / atualizar / remover itens (manual)
+  // =========================
+  document.getElementById('btnAdicionar').addEventListener('click', () => {
     const sku = document.getElementById('novoSku').value.trim();
     const cor = document.getElementById('novaCor').value.trim();
     const qtd = Number(document.getElementById('novaQtd').value) || 0;
-
     if (!sku) {
       alert("Informe o SKU.");
       return;
@@ -671,14 +690,12 @@
   function adicionarOuAtualizarItem(sku, cor, qty, renderDepois) {
     const skuNorm = normalizarTexto(sku);
     const corNorm = normalizarTexto(cor);
-
-    let item = itens.find(it =>
+    let itemExistente = itens.find(it =>
       normalizarTexto(it.sku) === skuNorm &&
       normalizarTexto(it.cor) === corNorm
     );
-
-    if (item) {
-      item.qty = qty;
+    if (itemExistente) {
+      itemExistente.qty = qty;
     } else {
       itens.push({
         id: proximoId++,
@@ -688,7 +705,6 @@
         bipado: 0
       });
     }
-
     if (renderDepois) {
       renderTabela();
       document.getElementById('novoSku').value = "";
@@ -702,283 +718,286 @@
     renderTabela();
   }
 
-  // ==========================================
-  // 6) BIPAGEM DIRETA (TEXTO / LEITOR TECLADO)
-  // ==========================================
-  campoBipagem.addEventListener('keydown', function(e) {
+  // =========================
+  // 6) Bipagem via campo (teclado/leitor)
+  // =========================
+  campoBipagem.addEventListener('keydown', e => {
     if (e.key === 'Enter') {
       e.preventDefault();
       const valor = campoBipagem.value.trim();
-      if (valor) {
-        processarLinhaEtiquetaUnica(valor);
-        campoBipagem.value = "";
-      }
+      if (!valor) return;
+      processarEntradaSimples(valor);
+      campoBipagem.value = "";
     }
   });
 
-  // Processa uma única linha "1. SKU *QTD"
-  function processarLinhaEtiquetaUnica(linha) {
-    const regex = /^\s*\d+\.\s*(.+?)\s*\*([\d,\.]+)/;
-    const m = linha.match(regex);
-    if (!m) {
-      infoBipagem.textContent =
-        `⚠ Não encontrei padrão "1. SKU *QTD" em: "${linha}"`;
-      return;
-    }
-    const skuEtiqueta = m[1].trim();
-    let qtd = m[2].replace(',', '.');
-    qtd = parseInt(qtd, 10) || 0;
-    if (qtd <= 0) {
-      infoBipagem.textContent = `⚠ Quantidade inválida em: "${linha}"`;
-      return;
-    }
-    registrarBipagemPorSkuEtiqueta(skuEtiqueta, qtd);
-  }
-
-  // Incrementa bipado do item pela quantidade
-  function registrarBipagemPorSkuEtiqueta(skuEtiqueta, quantidade) {
-    const etiquetaNorm = normalizarTexto(skuEtiqueta);
-
-    const candidatos = itens.filter(it => {
-      const skuPdf = normalizarTexto(adaptarSkuParaPdf(it.sku, it.cor));
-      return skuPdf === etiquetaNorm;
-    });
-
+  function processarEntradaSimples(texto) {
+    const codUp = texto.trim().toUpperCase();
+    // Tentar casar SKU p/ bipagem
+    let candidatos = itens.filter(it =>
+      adaptarSkuParaPdf(it.sku, it.cor).toUpperCase() === codUp
+    );
     if (candidatos.length === 0) {
-      infoBipagem.textContent =
-        `⚠ SKU da etiqueta não encontrado na tabela: "${skuEtiqueta}"`;
+      // tentar casar pelo sku da planilha
+      candidatos = itens.filter(it => it.sku.toUpperCase() === codUp);
+    }
+    if (candidatos.length === 0) {
+      infoBipagem.textContent = `⚠ SKU/código não encontrado: "${texto}"`;
+      beep('erro');
       return;
     }
     if (candidatos.length > 1) {
-      infoBipagem.textContent =
-        `⚠ SKU "${skuEtiqueta}" corresponde a mais de um item na tabela. Verifique variações.`;
+      infoBipagem.textContent = `⚠ Código "${texto}" corresponde a mais de um item (ambíguo).`;
+      beep('erro');
       return;
+    }
+    const item = candidatos[0];
+    item.bipado = (item.bipado || 0) + 1;
+    atualizarStatusBipagemDisplay(item, 1);
+    renderTabela();
+  }
+
+  function atualizarStatusBipagemDisplay(item, qtdAdicionada) {
+    const esperado = Number(item.qty) || 0;
+    const bip = item.bipado;
+    let msg;
+    if (bip > esperado && esperado > 0) {
+      msg = `ALERTA: "${adaptarSkuParaPdf(item.sku, item.cor)}" bipado ${bip}x, esperado ${esperado}. Pode ser duplicado.`;
+      beep('erro');
+    } else if (bip === esperado && esperado > 0) {
+      msg = `OK: "${adaptarSkuParaPdf(item.sku, item.cor)}" atingiu ${bip}/${esperado}.`;
+      beep('ok');
+    } else {
+      msg = `PENDENTE: "${adaptarSkuParaPdf(item.sku, item.cor)}" bipado ${bip}/${esperado} (acréscimo +${qtdAdicionada}).`;
+      beep('ok');
+    }
+    infoBipagem.textContent = msg;
+  }
+
+  // =========================
+  // 7) QR code - duplicidade com timer
+  // =========================
+  let html5QrCode = null;
+  let qrCameraAtiva = false;
+  let codigosQrLidos = new Set();
+  let ultimaLeituraQr = 0;
+  const intervaloQrMs = 5000; // 5 segundos
+
+  const btnQrIniciar = document.getElementById('btnQrIniciar');
+  const btnQrParar = document.getElementById('btnQrParar');
+  const qrInfo = document.getElementById('qrInfo');
+
+  btnQrIniciar.addEventListener('click', iniciarCameraQr);
+  btnQrParar.addEventListener('click', pararCameraQr);
+
+  function iniciarCameraQr() {
+    if (qrCameraAtiva) return;
+    if (!window.Html5Qrcode) {
+      alert("Biblioteca html5-qrcode não carregada.");
+      return;
+    }
+    qrInfo.textContent = "Abrindo câmera para ler QR...";
+    html5QrCode = new Html5Qrcode("qrReader");
+    const config = { fps: 10, qrbox: { width: 220, height: 220 } };
+
+    html5QrCode.start(
+      { facingMode: "environment" },
+      config,
+      (decodedText) => {
+        const agora = Date.now();
+        if (agora - ultimaLeituraQr < intervaloQrMs) {
+          // Ignora leituras muito próximas (evita repetição)
+          return;
+        }
+        ultimaLeituraQr = agora;
+        processarQr(decodedText);
+      },
+      (errorMsg) => {
+        // erros de leitura são normais; não exibir para não poluir a interface
+      }
+    ).then(() => {
+      qrCameraAtiva = true;
+      qrInfo.textContent = "Câmera QR ativa. Aponte para o QR da etiqueta.";
+      btnQrIniciar.disabled = true;
+      btnQrParar.disabled = false;
+    }).catch(err => {
+      console.error(err);
+      qrInfo.textContent = "Não foi possível abrir a câmera QR: " + err;
+      qrCameraAtiva = false;
+    });
+  }
+
+  function pararCameraQr() {
+    if (!html5QrCode || !qrCameraAtiva) return;
+    html5QrCode.stop().then(() => {
+      html5QrCode.clear();
+      qrCameraAtiva = false;
+      qrInfo.textContent = "Câmera QR parada.";
+      btnQrIniciar.disabled = false;
+      btnQrParar.disabled = true;
+    }).catch(err => {
+      console.error(err);
+      qrInfo.textContent = "Erro ao parar câmera QR: " + err;
+    });
+  }
+
+  function processarQr(texto) {
+    const cod = texto.trim();
+    if (!cod) return;
+    if (codigosQrLidos.has(cod)) {
+      qrInfo.textContent = `⚠ Produto duplicado! QR já lido: ${cod}`;
+      beep('erro');
+    } else {
+      codigosQrLidos.add(cod);
+      qrInfo.textContent = `OK: QR registrado: ${cod} (total lidos: ${codigosQrLidos.size})`;
+      beep('ok');
+    }
+  }
+
+  // =========================
+  // 8) OCR da etiqueta (SKU + quantidade)
+  // =========================
+  const videoOcr = document.getElementById('videoOcr');
+  const canvasOcr = document.getElementById('canvasOcr');
+  const ocrTextDiv = document.getElementById('ocrText');
+  const ocrStatus = document.getElementById('ocrStatus');
+
+  const btnOcrIniciar = document.getElementById('btnOcrIniciar');
+  const btnOcrCapturar = document.getElementById('btnOcrCapturar');
+  const btnOcrParar = document.getElementById('btnOcrParar');
+
+  let streamOcr = null;
+
+  btnOcrIniciar.addEventListener('click', iniciarCameraOcr);
+  btnOcrParar.addEventListener('click', pararCameraOcr);
+  btnOcrCapturar.addEventListener('click', capturarEtiquetaOcr);
+
+  async function iniciarCameraOcr() {
+    try {
+      if (streamOcr) return;
+      ocrStatus.textContent = "Solicitando acesso à câmera...";
+      const constraints = {
+        video: { facingMode: "environment" }
+      };
+      streamOcr = await navigator.mediaDevices.getUserMedia(constraints);
+      videoOcr.srcObject = streamOcr;
+      ocrStatus.textContent = "Câmera OCR ativa. Centralize a etiqueta e clique em 'Capturar etiqueta (OCR)'.";
+    } catch (e) {
+      console.error(e);
+      ocrStatus.textContent = "Não foi possível abrir a câmera OCR: " + e;
+    }
+  }
+
+  function pararCameraOcr() {
+    if (streamOcr) {
+      streamOcr.getTracks().forEach(t => t.stop());
+      streamOcr = null;
+      videoOcr.srcObject = null;
+      ocrStatus.textContent = "Câmera OCR parada.";
+    }
+  }
+
+  function capturarEtiquetaOcr() {
+    if (!streamOcr) {
+      ocrStatus.textContent = "Ative a câmera OCR antes de capturar.";
+      return;
+    }
+    const video = videoOcr;
+    const canvas = canvasOcr;
+    const ctx = canvas.getContext('2d');
+
+    // Define o canvas do tamanho do vídeo
+    canvas.width = video.videoWidth || 640;
+    canvas.height = video.videoHeight || 480;
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    ocrStatus.textContent = "Processando OCR (pode demorar alguns segundos)...";
+
+    Tesseract.recognize(canvas, 'por', { logger: m => {} })
+      .then(result => {
+        const texto = result.data.text || "";
+        ocrTextDiv.textContent = texto;
+        ocrStatus.textContent = "OCR concluído. Tentando localizar SKU e quantidade...";
+        processarTextoEtiqueta(texto);
+      })
+      .catch(err => {
+        console.error(err);
+        ocrStatus.textContent = "Erro no OCR: " + err;
+      });
+  }
+
+  // Processa o texto OCR, procurando linhas tipo: 1. D-Y03LARANJA (LARANJA) *2
+  function processarTextoEtiqueta(texto) {
+    if (!texto) {
+      ocrStatus.textContent = "Nenhum texto reconhecido na etiqueta.";
+      beep('erro');
+      return;
+    }
+
+    const linhasEncontradas = [];
+    const regexLinha = /1\.\s*(.+?)\s*\*([\d]+)/g; // captura entre "1." e "*" + quantidade
+    let match;
+    while ((match = regexLinha.exec(texto)) !== null) {
+      const skuBruto = match[1].replace(/\s+/g, " ").trim();
+      const qtdStr = match[2];
+      const qtd = parseInt(qtdStr, 10) || 0;
+      if (!skuBruto || !qtd) continue;
+      linhasEncontradas.push({ sku: skuBruto, qtd });
+    }
+
+    if (linhasEncontradas.length === 0) {
+      ocrStatus.textContent = "Não consegui encontrar padrão '1. SKU *QTD' no texto.";
+      beep('erro');
+      return;
+    }
+
+    let resumo = "";
+    linhasEncontradas.forEach(info => {
+      const ok = registrarSkuEQuantidade(info.sku, info.qtd);
+      resumo += (ok ? "OK" : "ERRO") + ` - ${info.sku} *${info.qtd}\n`;
+    });
+
+    ocrStatus.textContent = "Resultado OCR processado:\n" + resumo.trim();
+  }
+
+  // Recebe o SKU completo (como na etiqueta) e a quantidade e aplica no estoque
+  function registrarSkuEQuantidade(skuEtiqueta, quantidade) {
+    const codUp = skuEtiqueta.toUpperCase().trim();
+
+    // 1º tentativa: casar com SKU p/ bipagem exato
+    let candidatos = itens.filter(it =>
+      adaptarSkuParaPdf(it.sku, it.cor).toUpperCase() === codUp
+    );
+
+    // 2º tentativa: se não achar, tenta se a etiqueta começa com o SKU da planilha
+    if (candidatos.length === 0) {
+      candidatos = itens.filter(it => {
+        const skuPlan = it.sku.toUpperCase();
+        return codUp.startsWith(skuPlan);
+      });
+    }
+
+    if (candidatos.length === 0) {
+      ocrStatus.textContent += `\n⚠ SKU da etiqueta não encontrado na tabela: "${skuEtiqueta}"`;
+      beep('erro');
+      return false;
+    }
+    if (candidatos.length > 1) {
+      ocrStatus.textContent += `\n⚠ SKU "${skuEtiqueta}" corresponde a mais de um item (ambíguo).`;
+      beep('erro');
+      return false;
     }
 
     const item = candidatos[0];
     item.bipado = (item.bipado || 0) + quantidade;
-
-    const esperado = Number(item.qty) || 0;
-    const bip = item.bipado;
-
-    let msg;
-    if (bip > esperado && esperado > 0) {
-      msg = `ALERTA: "${skuEtiqueta}" bipado ${bip}x, mas quantidade esperada é ${esperado}.`;
-    } else if (bip === esperado && esperado > 0) {
-      msg = `OK: "${skuEtiqueta}" atingiu a quantidade completa (${bip}/${esperado}).`;
-    } else {
-      msg = `PENDENTE: "${skuEtiqueta}" bipado ${bip}/${esperado}.`;
-    }
-    infoBipagem.textContent = msg;
-    tocarBeep();
+    atualizarStatusBipagemDisplay(item, quantidade);
     renderTabela();
+    return true;
   }
 
-  function tocarBeep() {
-    try {
-      const ctx = new (window.AudioContext || window.webkitAudioContext)();
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = "square";
-      osc.frequency.value = 900;
-      gain.gain.value = 0.15;
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start();
-      setTimeout(() => {
-        osc.stop();
-        ctx.close();
-      }, 120);
-    } catch (e) {
-      // se der erro, ignora
-    }
-  }
-
-  // ==========================================
-  // 7) LEITOR QR (RASTREIO, DUPLICIDADE)
-  // ==========================================
-  let html5QrCode = null;
-  let cameraQrAtiva = false;
-
-  const btnCameraQR = document.getElementById('btnCameraQR');
-  const btnFecharQR = document.getElementById('btnFecharQR');
-
-  btnCameraQR.addEventListener('click', async function() {
-    if (cameraQrAtiva) return;
-    try {
-      html5QrCode = new Html5Qrcode("reader");
-      infoQr.textContent = "Abrindo câmera para ler QR...";
-
-      const config = {
-        fps: 10,
-        qrbox: { width: 220, height: 220 } // Área pequena para focar só no QR
-      };
-
-      await html5QrCode.start(
-        { facingMode: "environment" },
-        config,
-        (decodedText, decodedResult) => {
-          const texto = decodedText.trim();
-
-          // 1) Código de rastreio (BR...)
-          processarCodigoRastreio(texto);
-
-          // 2) Se algum dia o QR trouxer "1. CS-30 *1", isso também é processado:
-          processarLinhaEtiquetaUnica(texto);
-        },
-        (errorMessage) => {
-          // erros contínuos de leitura (ignorar)
-        }
-      );
-
-      cameraQrAtiva = true;
-      btnCameraQR.disabled = true;
-      btnFecharQR.disabled = false;
-      infoQr.textContent = "Câmera ativa. Aponte para o QR code da etiqueta.";
-    } catch (err) {
-      console.error(err);
-      infoQr.textContent = "Não foi possível abrir a câmera para QR: " + err;
-    }
-  });
-
-  btnFecharQR.addEventListener('click', async function() {
-    if (html5QrCode && cameraQrAtiva) {
-      try {
-        await html5QrCode.stop();
-        await html5QrCode.clear();
-      } catch (e) {
-        console.error(e);
-      }
-    }
-    cameraQrAtiva = false;
-    btnCameraQR.disabled = false;
-    btnFecharQR.disabled = true;
-    infoQr.textContent = "Câmera de QR desligada.";
-  });
-
-  function processarCodigoRastreio(codigo) {
-    const cod = codigo.trim();
-    if (!cod) return;
-
-    const ehRastreio = /^BR[0-9A-Z]+$/i.test(cod);
-    if (!ehRastreio) return;
-
-    if (rastreiosLidos.has(cod)) {
-      infoQr.textContent = `⚠ Código de rastreio DUPLICADO: ${cod}`;
-      tocarSomErro();
-    } else {
-      rastreiosLidos.add(cod);
-      rastreios.push(cod);
-      infoQr.textContent = `✅ Código de rastreio registrado: ${cod}`;
-      atualizarListaRastreios();
-      tocarSomOk();
-    }
-  }
-
-  function atualizarListaRastreios() {
-    if (!rastreios.length) {
-      listaRastreiosDiv.innerHTML = "";
-      return;
-    }
-    listaRastreiosDiv.innerHTML =
-      "<b>Rastreios lidos:</b><br>" +
-      rastreios.map(r => `<span class="chip">${r}</span>`).join(" ");
-  }
-
-  function tocarSomOk() {
-    tocarBeep(); // usa o mesmo beep de sucesso
-  }
-
-  function tocarSomErro() {
-    try {
-      const ctx = new (window.AudioContext || window.webkitAudioContext)();
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = "square";
-      osc.frequency.value = 300;
-      gain.gain.value = 0.2;
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start();
-      setTimeout(() => {
-        osc.stop();
-        ctx.close();
-      }, 200);
-    } catch (e) {}
-  }
-
-  // ==========================================
-  // 8) OCR DA ETIQUETA INTEIRA
-  // ==========================================
-  const btnCameraOCR = document.getElementById('btnCameraOCR');
-  const inputOCR     = document.getElementById('inputOCR');
-
-  btnCameraOCR.addEventListener('click', function() {
-    inputOCR.click(); // abre câmera no celular
-  });
-
-  inputOCR.addEventListener('change', function(e) {
-    const file = e.target.files[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = function(evt) {
-      const dataUrl = evt.target.result;
-      ocrPreview.src = dataUrl;
-      ocrPreview.style.display = "block";
-      infoOcr.textContent = "Lendo texto da etiqueta (OCR)... isso pode levar alguns segundos.";
-      fazerOcrNaImagem(dataUrl);
-    };
-    reader.readAsDataURL(file);
-  });
-
-  async function fazerOcrNaImagem(dataUrl) {
-    try {
-      const result = await Tesseract.recognize(
-        dataUrl,
-        'por', // português
-        { logger: m => {} }
-      );
-      const texto = result.data.text || "";
-      infoOcr.textContent = "OCR concluído. Processando SKUs e quantidades...";
-      processarTextoEtiquetaCompleta(texto);
-    } catch (err) {
-      console.error(err);
-      infoOcr.textContent = "Erro ao fazer OCR: " + err;
-    }
-  }
-
-  // *** AQUI ESTÁ A MUDANÇA IMPORTANTE ***
-  // Em vez de olhar linha a linha, "amassa" todo o texto
-  // e busca padrões "1. ALGUMA COISA *QTD" mesmo com quebras no meio.
-  function processarTextoEtiquetaCompleta(textoBruto) {
-    // Substitui qualquer espaço/quebra de linha por um único espaço
-    const texto = textoBruto.replace(/\s+/g, ' ');
-    const regex = /(\d+)\.\s*([^*]+?)\s*\*([0-9]+)/g;
-
-    let encontrados = 0;
-    let m;
-    while ((m = regex.exec(texto)) !== null) {
-      encontrados++;
-      const skuEtiqueta = m[2].trim();
-      const qtd = parseInt(m[3], 10) || 0;
-      if (qtd <= 0) continue;
-      registrarBipagemPorSkuEtiqueta(skuEtiqueta, qtd);
-    }
-
-    if (!encontrados) {
-      infoOcr.textContent =
-        "OCR concluído, mas não encontrei nenhum padrão '1. SKU *QTD'. " +
-        "Isso geralmente acontece quando o texto do SKU está muito sujo pelo OCR.";
-    } else {
-      infoOcr.textContent =
-        `OCR OK: encontrei ${encontrados} ocorrência(s) no formato '1. SKU *QTD' e atualizei o estoque.`;
-    }
-  }
-
-  // ==========================================
-  // 9) INICIALIZAÇÃO
-  // ==========================================
+  // =========================
+  // 9) Inicializar tudo
+  // =========================
   inicializarItens();
 </script>
 </body>
