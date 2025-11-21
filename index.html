@@ -2,25 +2,16 @@
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8">
-  <title>Controle de Estoque por Etiquetas PDF (SKU + Quantidade + Rastreamento)</title>
+  <title>Controle de Estoque - PDF + QR Duplicidade</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
-
-  <!-- pdf.js – carrega a biblioteca antes de usar pdfjsLib -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.3.136/pdf.min.js"></script>
-  <script>
-    // Configura o worker da pdf.js para evitar erro de GlobalWorkerOptions
-    if (window['pdfjsLib']) {
-      pdfjsLib.GlobalWorkerOptions.workerSrc =
-        "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.3.136/pdf.worker.min.js";
-    }
-  </script>
-
+  <!-- Bibliotecas locais (precisam estar na mesma pasta do HTML) -->
+  <script src="pdf.min.js"></script>
+  <script src="html5-qrcode.min.js"></script>
   <style>
     body {
       font-family: Arial, sans-serif;
       margin: 10px;
       background: #f7f7f7;
-      color: #333;
     }
     .container {
       max-width: 1200px;
@@ -28,7 +19,7 @@
       background: #fff;
       padding: 10px;
       border-radius: 8px;
-      box-shadow: 0 0 8px rgba(0,0,0,0.05);
+      box-shadow: 0 0 6px rgba(0,0,0,0.1);
     }
     h1, h2 {
       font-size: 20px;
@@ -51,10 +42,12 @@
       cursor: pointer;
       border-radius: 4px;
       border: 1px solid #ccc;
-      background: #e9f3ff;
+      background: #e9e9e9;
     }
-    button:hover {
-      background: #d7e7ff;
+    button.primary {
+      background: #4caf50;
+      color: #fff;
+      border-color: #4caf50;
     }
     table {
       width: 100%;
@@ -78,7 +71,7 @@
       color: #666;
     }
     .row-actions button {
-      font-size: 12px;
+      font-size: 11px;
       padding: 3px 6px;
     }
     @media (min-width: 600px) {
@@ -88,15 +81,21 @@
         gap: 6px;
         align-items: center;
       }
+      .form-grid-qr {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 6px;
+        align-items: center;
+      }
     }
     .ok {
       background: #e0ffe0;
     }
-    .pendente {
-      background: #fffbe0;
-    }
     .alerta {
       background: #ffe0e0;
+    }
+    .pendente {
+      background: #fffbe0;
     }
     .badge {
       display: inline-block;
@@ -107,144 +106,134 @@
     .badge-ok {
       background: #c6f6c6;
     }
-    .badge-pendente {
-      background: #fff2b3;
-    }
     .badge-alerta {
       background: #ffc4c4;
     }
-    .badge-dup {
-      background: #ffb3d9;
+    .badge-pendente {
+      background: #fff2b3;
+    }
+    #reader {
+      width: 260px;
+      max-width: 100%;
+      margin-top: 8px;
     }
     .log {
-      max-height: 260px;
-      overflow: auto;
-      border: 1px solid #ddd;
-      padding: 4px;
+      max-height: 160px;
+      overflow-y: auto;
       background: #fafafa;
+      border: 1px solid #ddd;
+      padding: 6px;
       font-size: 12px;
+      white-space: pre-wrap;
     }
-    .log-entry-ok { color: #1f7a1f; }
-    .log-entry-dup { color: #b30059; }
-    .log-entry-erro { color: #b30000; }
   </style>
 </head>
 <body>
 <div class="container">
-  <h1>Controle de Estoque via Etiquetas PDF (SKU + Qtde + Rastreamento)</h1>
+  <h1>Controle de Estoque - PDF + QR Duplicidade</h1>
 
   <p class="small">
-    Fluxo:<br>
-    1) Os SKUs + cores da planilha já estão embutidos (padrão usado nas etiquetas).<br>
-    2) Você faz <b>upload dos PDFs</b> das etiquetas (MEGA EXPLOSÃO etc).<br>
-    3) O sistema lê o texto do PDF, procura linhas do tipo <code>1. CS-30 *1</code>, extrai <b>SKU + quantidade</b> e
-       também o <b>código de rastreio</b> na linha <code>SKU: 1; Total Items: 1; #UP2F...</code>.<br>
-    4) Se encontrar o SKU na tabela, soma no “Bipado” e mostra se o pedido está OK, pendente ou em excesso.<br>
-    5) Se o código de rastreio já tiver sido lido antes, marca como <b>Duplicado</b> e toca um bip diferente.
+    • Os SKUs da planilha estão carregados com estoque inicial (ajustável).<br>
+    • <b>PDF</b>: lê as etiquetas (linha com <code>1. ... *QTD</code>) e abate estoque pelo SKU + quantidade.<br>
+    • <b>QR-Code da etiqueta</b>: usado só para controle de duplicidade (se já foi lido, avisa).<br>
   </p>
 
-  <!-- 1) Upload de PDFs das etiquetas -->
-  <h2>1) Upload de PDFs com etiquetas</h2>
-  <input type="file" id="inputPDF" accept="application/pdf" multiple>
-  <button id="btnProcessarPDFs">Processar PDFs</button>
-  <div id="infoPDF" class="small"></div>
-
-  <hr>
-
-  <!-- 2) Adicionar / atualizar itens manualmente -->
-  <h2>2) Adicionar / atualizar itens manualmente</h2>
+  <!-- 1) Estoque -->
+  <h2>1) Tabela de estoque</h2>
   <p class="small">
-    Os SKUs da planilha já estão embutidos. Se você adicionar um SKU de etiqueta que já existe,
-    a quantidade esperada será atualizada (o bipado continua).
+    Você pode ajustar manualmente o estoque atual ou adicionar/remover SKUs.
   </p>
 
   <div class="form-grid">
     <div>
-      <label>SKU (planilha) / base</label><br>
-      <input type="text" id="novoSku" placeholder="Ex: D-Y03, ON-FN632, TE-115...">
+      <label>SKU (planilha)</label><br>
+      <input type="text" id="novoSku" placeholder="Ex: D-Y03, KP-7023, ON-FN632...">
     </div>
     <div>
       <label>Cor (planilha)</label><br>
       <input type="text" id="novaCor" placeholder="Ex: PRETO, AZUL, ROSA...">
     </div>
     <div>
-      <label>Quantidade esperada</label><br>
+      <label>Estoque inicial</label><br>
       <input type="number" id="novaQtd" value="300" min="0">
     </div>
     <div>
-      <button id="btnAdicionar">Adicionar / Atualizar</button>
+      <button id="btnAdicionar" class="primary">Adicionar / Atualizar SKU</button>
     </div>
   </div>
 
   <div id="resumo"></div>
 
-  <!-- 3) Tabela de estoque -->
-  <h2>3) Itens de estoque (planilha + embutidos)</h2>
-  <div style="max-height: 330px; overflow: auto;">
+  <div style="max-height: 280px; overflow:auto; margin-top:5px;">
     <table id="tabelaItens">
       <thead>
-      <tr>
-        <th>#</th>
-        <th>SKU base</th>
-        <th>Cor base</th>
-        <th>SKU etiqueta (padrão PDF)</th>
-        <th>Qtd esperada</th>
-        <th>Bipado</th>
-        <th>Restante</th>
-        <th>Status</th>
-        <th>Ações</th>
-      </tr>
+        <tr>
+          <th>#</th>
+          <th>SKU (planilha)</th>
+          <th>Cor</th>
+          <th>SKU etiqueta (padrão PDF)</th>
+          <th>Estoque atual</th>
+          <th>Saída (lida)</th>
+          <th>Status</th>
+          <th>Ações</th>
+        </tr>
       </thead>
       <tbody id="tbodyItens"></tbody>
     </table>
   </div>
 
-  <!-- 4) Log de etiquetas lidas -->
-  <h2>4) Log de etiquetas lidas (PDF)</h2>
-  <div class="log" id="logEtiquetas"></div>
+  <!-- 2) Leitura de etiquetas via PDF -->
+  <h2>2) Ler etiquetas (PDF) para abater estoque</h2>
+  <p class="small">
+    Selecione um ou mais PDFs com as etiquetas (<b>MEGA EXPLOSAO</b>).<br>
+    O sistema procura linhas no formato <code>1. SKU COMPLETO *QTD</code>, por exemplo:<br>
+    <code>1. CS-30 *1</code><br>
+    <code>1. D-Y03LARANJA (LARANJA) *2</code><br>
+    e usa o que estiver entre <b>1.</b> e <b>*</b> como SKU da etiqueta, e o número depois de <b>*</b> como quantidade.
+  </p>
+  <input type="file" id="pdfInput" accept="application/pdf" multiple>
+  <button id="btnLerPDF" class="primary">Processar PDFs</button>
+  <div id="infoPDF" class="small"></div>
+  <div id="logPDF" class="log"></div>
+
+  <!-- 3) QR-Code para controle de duplicidade -->
+  <h2>3) Leitor de QR-Code (controle de duplicidade)</h2>
+  <p class="small">
+    Use a câmera para ler o QR-Code da etiqueta (Shopee / Correios).<br>
+    • Se o código de rastreio for lido pela primeira vez → OK.<br>
+    • Se já tiver sido lido antes → avisa <b>“Produto duplicado”</b>.<br>
+    Há um intervalo de <b>5 segundos</b> entre leituras válidas para evitar repetição automática.
+  </p>
+
+  <div class="form-grid-qr">
+    <div>
+      <button id="btnIniciarQR" class="primary">Iniciar câmera (QR)</button>
+      <button id="btnPararQR">Parar câmera</button>
+    </div>
+    <div>
+      <span id="statusQR" class="small"></span>
+    </div>
+  </div>
+
+  <div id="reader"></div>
+  <div id="logQR" class="log"></div>
 </div>
 
 <script>
   // =========================
-  // 0) Beeps (som de bip)
+  // CONFIGURAÇÃO PDF.JS LOCAL
   // =========================
-  function tocarBeepSucesso() {
-    try {
-      const ctx = new (window.AudioContext || window.webkitAudioContext)();
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = "square";
-      osc.frequency.value = 900;
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      gain.gain.setValueAtTime(0.1, ctx.currentTime);
-      osc.start();
-      osc.stop(ctx.currentTime + 0.15);
-    } catch (e) {
-      // se der erro, ignora (navegador bloqueou)
-    }
-  }
-
-  function tocarBeepErro() {
-    try {
-      const ctx = new (window.AudioContext || window.webkitAudioContext)();
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = "square";
-      osc.frequency.value = 300;
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      gain.gain.setValueAtTime(0.15, ctx.currentTime);
-      osc.start();
-      osc.stop(ctx.currentTime + 0.25);
-    } catch (e) {}
+  if (window['pdfjsLib']) {
+    // Ajuste o nome do worker se o arquivo tiver outro nome (ex: pdf.worker.js)
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'pdf.worker.min.js';
   }
 
   // =========================
-  // 1) Base de itens (planilha)
+  // 1) DADOS BASE (planilha)
   // =========================
 
-  // Mesma ideia do código anterior: SKU base + cor + qty
+  // Modelo dos SKUs da sua planilha (mesma lógica que usamos antes).
+  // Você pode acrescentar mais linhas conforme necessário.
   const itensBasePlanilha = [
     {"sku": "KP-RO826", "cor": "", "qty": 300},
     {"sku": "KP-RO852", "cor": "", "qty": 300},
@@ -306,30 +295,8 @@
     {"sku": "D-3158", "cor": "AMARELO", "qty": 300},
     {"sku": "D-3158", "cor": "VERM", "qty": 300},
     {"sku": "D-3158", "cor": "VERDE", "qty": 300},
-    {"sku": "D-BH1065", "cor": "", "qty": 300},
-    {"sku": "D-BH1064", "cor": "", "qty": 300},
-    {"sku": "D-BH1051", "cor": "", "qty": 300},
-    {"sku": "D-BH1050", "cor": "", "qty": 300},
-    {"sku": "D-BH1019", "cor": "", "qty": 300},
     {"sku": "D-1601", "cor": "", "qty": 300},
-    {"sku": "D-3151", "cor": "", "qty": 300},
-    {"sku": "D-Y04/05", "cor": "", "qty": 300},
-    {"sku": "D-NK1201", "cor": "", "qty": 300},
     {"sku": "D-MN001", "cor": "", "qty": 300},
-    {"sku": "D-TELA04", "cor": "", "qty": 300},
-    {"sku": "D-TELA02", "cor": "", "qty": 300},
-    {"sku": "D-AI05", "cor": "", "qty": 300},
-    {"sku": "D-A24E9903", "cor": "", "qty": 300},
-    {"sku": "D-AI06", "cor": "", "qty": 300},
-    {"sku": "D-X338", "cor": "", "qty": 300},
-    {"sku": "D-XK300", "cor": "", "qty": 300},
-    {"sku": "D-S8122", "cor": "", "qty": 300},
-    {"sku": "D-Y07", "cor": "", "qty": 300},
-    {"sku": "D-XK101", "cor": "", "qty": 300},
-    {"sku": "D-X612", "cor": "", "qty": 300},
-    {"sku": "PROT. AURICULAR", "cor": "", "qty": 300},
-    {"sku": "PAPABOLINHAS", "cor": "", "qty": 300},
-    {"sku": "M-303", "cor": "", "qty": 300},
     {"sku": "CS-30", "cor": "", "qty": 300},
     {"sku": "RO-832", "cor": "", "qty": 300},
     {"sku": "LB-521", "cor": "", "qty": 300},
@@ -342,65 +309,57 @@
     {"sku": "ON-FN632", "cor": "ROXO", "qty": 300},
     {"sku": "ON-FN632", "cor": "AZUL", "qty": 300},
     {"sku": "TE-115", "cor": "", "qty": 300},
-    {"sku": "TE-119", "cor": "", "qty": 300},
-    {"sku": "TE-121", "cor": "", "qty": 300},
     {"sku": "TE-124", "cor": "", "qty": 300},
-    {"sku": "PN-899", "cor": "", "qty": 300},
-    {"sku": "CANETA TERMICA", "cor": "", "qty": 300},
-    {"sku": "TABLET INFANTIL", "cor": "azul", "qty": 300},
-    {"sku": "TABLET INFANTIL", "cor": "rosa", "qty": 300},
-    {"sku": "KP-TE129", "cor": "", "qty": 300},
-    {"sku": "KP-TE146", "cor": "", "qty": 300},
-    {"sku": "D-TELA03", "cor": "", "qty": 300},
-    {"sku": "D-TELA05", "cor": "", "qty": 300},
-    {"sku": "D-TELA06", "cor": "", "qty": 300},
-    {"sku": "D-TELA07", "cor": "", "qty": 300},
-    {"sku": "D-BH1064", "cor": "VERMELHO", "qty": 300},
-    {"sku": "D-BH1064", "cor": "PRETO", "qty": 300},
-    {"sku": "D-BH1064", "cor": "ROSA", "qty": 300},
-    {"sku": "D-BH1064", "cor": "PRATA", "qty": 300},
-    {"sku": "D-BH1064", "cor": "ROSÉ", "qty": 300},
-    {"sku": "D-BH1051", "cor": "AZUL", "qty": 300},
-    {"sku": "D-BH1051", "cor": "PRETO", "qty": 300},
-    {"sku": "D-BH1051", "cor": "ROSÉ", "qty": 300},
-    {"sku": "D-BH1051", "cor": "ROSA", "qty": 300},
-    {"sku": "D-BH1051", "cor": "VERMELHO", "qty": 300},
-    {"sku": "D-BH1051", "cor": "PRATA", "qty": 300},
-    {"sku": "D-BH1050", "cor": "AZUL", "qty": 300},
-    {"sku": "D-BH1050", "cor": "PRETO", "qty": 300},
-    {"sku": "D-BH1050", "cor": "ROSÉ", "qty": 300},
-    {"sku": "D-BH1050", "cor": "PRATA", "qty": 300},
-    {"sku": "AI07", "cor": "", "qty": 300},
-    {"sku": "AI03", "cor": "", "qty": 300},
-    {"sku": "D-BH8115", "cor": "", "qty": 300},
-    {"sku": "D-238G 180H", "cor": "", "qty": 300},
-    {"sku": "DS-14", "cor": "PRETO", "qty": 300},
-    {"sku": "KP-397", "cor": "VERMELHO", "qty": 300},
-    {"sku": "KP-FN632", "cor": "ROSA", "qty": 300},
-    {"sku": "KP-FN632", "cor": "VERDE", "qty": 300},
-    {"sku": "D-FT101", "cor": "", "qty": 300},
-    {"sku": "DRONE", "cor": "", "qty": 300},
-    {"sku": "RO802", "cor": "", "qty": 300}
+    {"sku": "PN-899", "cor": "", "qty": 300}
+    // ... se quiser, adicione o restante da planilha aqui
   ];
 
-  let itens = [];   // {id, skuBase, corBase, skuEtiqueta, qtyEsperada, bipado}
+  let itens = []; // {id, sku, cor, estoqueInicial, estoqueAtual, saida, skuEtiqueta, skuEtiquetaNorm}
   let proximoId = 1;
 
   const tbodyItens = document.getElementById('tbodyItens');
   const resumoDiv = document.getElementById('resumo');
-  const logEtiquetas = document.getElementById('logEtiquetas');
   const infoPDF = document.getElementById('infoPDF');
-
-  // Set de códigos de rastreio já lidos para detectar duplicidade
-  const codigosRastreioLidos = new Set();
+  const logPDF = document.getElementById('logPDF');
 
   // =========================
-  // 2) Normalização de cor e texto
+  // FUNÇÕES DE APOIO
   // =========================
+
+  function beep(tipo) {
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.connect(g);
+      g.connect(ctx.destination);
+
+      if (tipo === 'ok') {
+        o.frequency.value = 880;
+      } else if (tipo === 'dup') {
+        o.frequency.value = 220;
+      } else {
+        o.frequency.value = 440;
+      }
+
+      o.type = 'square';
+      g.gain.setValueAtTime(0.1, ctx.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.2);
+      o.start();
+      o.stop(ctx.currentTime + 0.2);
+    } catch (e) {
+      // em alguns navegadores pode falhar; ignora
+    }
+  }
+
+  function normalizarTexto(txt) {
+    if (!txt) return "";
+    return txt.toString().trim().toUpperCase().replace(/\s+/g, " ");
+  }
+
   function normalizarCorCanon(cor) {
     if (!cor) return "";
     let c = cor.toString().trim().toUpperCase();
-
     c = c
       .replace(/[ÁÀÂÃ]/g, "A")
       .replace(/[ÉÈÊ]/g, "E")
@@ -408,7 +367,6 @@
       .replace(/[ÓÒÔÕ]/g, "O")
       .replace(/[ÚÙÛ]/g, "U")
       .replace(/Ç/g, "C");
-
     c = c.replace(/\s+/g, " ");
 
     const mapa = {
@@ -438,7 +396,6 @@
     const semEspaco = c.replace(/\s+/g, "");
     if (mapa[semEspaco]) return mapa[semEspaco];
     if (mapa[c]) return mapa[c];
-
     return c;
   }
 
@@ -447,15 +404,8 @@
     return corCanon.toUpperCase();
   }
 
-  function normalizarTexto(txt) {
-    if (!txt) return "";
-    return txt.toString().trim().toUpperCase();
-  }
-
-  // =========================
-  // 3) Adaptar SKU base -> SKU de etiqueta (padrão PDF)
-  // =========================
-  function adaptarSkuParaPdf(skuOriginal, corOriginal) {
+  // Adapta SKU planilha + cor para o formato das etiquetas (padrão PDF)
+  function adaptarSkuParaEtiqueta(skuOriginal, corOriginal) {
     if (!skuOriginal) return "";
     const skuUp = skuOriginal.toString().trim().toUpperCase();
     const corCanon = normalizarCorCanon(corOriginal || "");
@@ -496,7 +446,9 @@
       return "TE-124 (Iluminação RGB Gamer)";
     }
     if (skuUp === "KP-TE112") {
-      if (corCanon) return "KP-TE112" + corCanon + " (" + corPretty + ")";
+      if (corCanon) {
+        return "KP-TE112" + corCanon + " (" + corPretty + ")";
+      }
       return "KP-TE112";
     }
     if (skuUp === "KP-LB521" || skuUp === "LB-521") {
@@ -537,34 +489,49 @@
     return skuUp;
   }
 
-  // =========================
-  // 4) Inicializar itens com a planilha embutida
-  // =========================
   function inicializarItens() {
-    itens = itensBasePlanilha.map(obj => ({
-      id: proximoId++,
-      skuBase: obj.sku,
-      corBase: obj.cor,
-      skuEtiqueta: adaptarSkuParaPdf(obj.sku, obj.cor),
-      qty: obj.qty,
-      bipado: 0
-    }));
+    itens = itensBasePlanilha.map(obj => {
+      const skuEtiqueta = adaptarSkuParaEtiqueta(obj.sku, obj.cor);
+      const skuEtiquetaNorm = normalizarTexto(skuEtiqueta);
+      const estoqueInicial = obj.qty || 0;
+      return {
+        id: proximoId++,
+        sku: obj.sku,
+        cor: obj.cor,
+        estoqueInicial: estoqueInicial,
+        estoqueAtual: estoqueInicial,
+        saida: 0,
+        skuEtiqueta: skuEtiqueta,
+        skuEtiquetaNorm: skuEtiquetaNorm
+      };
+    });
     renderTabela();
   }
 
-  // =========================
-  // 5) Renderização da tabela de estoque
-  // =========================
+  function encontrarItemPorSkuEtiqueta(skuEtiquetaBruto) {
+    const norm = normalizarTexto(skuEtiquetaBruto);
+    let candidatos = itens.filter(it => it.skuEtiquetaNorm === norm);
+    if (candidatos.length === 1) return candidatos[0];
+
+    // fallback: começa com / contém
+    candidatos = itens.filter(it =>
+      it.skuEtiquetaNorm.startsWith(norm) ||
+      norm.startsWith(it.skuEtiquetaNorm)
+    );
+    if (candidatos.length === 1) return candidatos[0];
+
+    return null;
+  }
+
   function renderTabela() {
     tbodyItens.innerHTML = "";
-
     const ordenados = [...itens].sort((a, b) => {
-      const sA = a.skuBase.toUpperCase();
-      const sB = b.skuBase.toUpperCase();
+      const sA = a.sku.toUpperCase();
+      const sB = b.sku.toUpperCase();
       if (sA < sB) return -1;
       if (sA > sB) return 1;
-      const cA = (a.corBase || "").toUpperCase();
-      const cB = (b.corBase || "").toUpperCase();
+      const cA = (a.cor || "").toUpperCase();
+      const cB = (b.cor || "").toUpperCase();
       if (cA < cB) return -1;
       if (cA > cB) return 1;
       return 0;
@@ -573,90 +540,76 @@
     ordenados.forEach((item, index) => {
       const tr = document.createElement('tr');
 
-      const bip = item.bipado || 0;
-      const esperado = Number(item.qty) || 0;
-      const restante = Math.max(esperado - bip, 0);
-
-      let status = "";
-      let badgeClass = "";
-      let rowClass = "";
-
-      if (esperado === 0 && bip === 0) {
-        status = "Sem quantidade";
-      } else if (bip === 0 && esperado > 0) {
-        status = "Ainda não bipado";
-        badgeClass = "badge-pendente";
-        rowClass = "pendente";
-      } else if (bip < esperado) {
-        status = `Pendente (${bip}/${esperado})`;
-        badgeClass = "badge-pendente";
-        rowClass = "pendente";
-      } else if (bip === esperado) {
-        status = "OK (completo)";
-        badgeClass = "badge-ok";
-        rowClass = "ok";
-      } else if (bip > esperado) {
-        status = `Excesso (${bip}/${esperado})`;
-        badgeClass = "badge-alerta";
-        rowClass = "alerta";
+      // status
+      let cls = "";
+      let statusTxt = "";
+      let badgeCls = "";
+      if (item.estoqueAtual === 0 && item.saida === 0) {
+        statusTxt = "Sem movimentação";
+        badgeCls = "badge-pendente";
+        cls = "pendente";
+      } else if (item.estoqueAtual < 0) {
+        statusTxt = "Estoque negativo";
+        badgeCls = "badge-alerta";
+        cls = "alerta";
+      } else if (item.saida > 0) {
+        statusTxt = "Com saídas";
+        badgeCls = "badge-ok";
+        cls = "ok";
       }
 
-      tr.className = rowClass;
+      tr.className = cls;
 
       const tdIdx = document.createElement('td');
       tdIdx.textContent = index + 1;
       tr.appendChild(tdIdx);
 
       const tdSku = document.createElement('td');
-      tdSku.textContent = item.skuBase;
+      tdSku.textContent = item.sku;
       tr.appendChild(tdSku);
 
       const tdCor = document.createElement('td');
-      tdCor.textContent = item.corBase || "-";
+      tdCor.textContent = item.cor || "-";
       tr.appendChild(tdCor);
 
-      const tdSkuEt = document.createElement('td');
-      tdSkuEt.textContent = item.skuEtiqueta;
-      tr.appendChild(tdSkuEt);
+      const tdEtiqueta = document.createElement('td');
+      tdEtiqueta.textContent = item.skuEtiqueta;
+      tr.appendChild(tdEtiqueta);
 
-      const tdQtd = document.createElement('td');
-      const inputQtd = document.createElement('input');
-      inputQtd.type = "number";
-      inputQtd.min = "0";
-      inputQtd.value = item.qty;
-      inputQtd.style.width = "80px";
-      inputQtd.addEventListener('change', () => {
-        item.qty = Number(inputQtd.value) || 0;
-        renderTabela();
+      const tdEstoque = document.createElement('td');
+      const inpEst = document.createElement('input');
+      inpEst.type = "number";
+      inpEst.style.width = "80px";
+      inpEst.value = item.estoqueAtual;
+      inpEst.addEventListener('change', () => {
+        item.estoqueAtual = Number(inpEst.value) || 0;
+        atualizarResumo();
       });
-      tdQtd.appendChild(inputQtd);
-      tr.appendChild(tdQtd);
+      tdEstoque.appendChild(inpEst);
+      tr.appendChild(tdEstoque);
 
-      const tdBip = document.createElement('td');
-      tdBip.textContent = bip;
-      tr.appendChild(tdBip);
-
-      const tdRest = document.createElement('td');
-      tdRest.textContent = restante;
-      tr.appendChild(tdRest);
+      const tdSaida = document.createElement('td');
+      tdSaida.textContent = item.saida;
+      tr.appendChild(tdSaida);
 
       const tdStatus = document.createElement('td');
-      if (status) {
+      if (statusTxt) {
         const span = document.createElement('span');
-        span.textContent = status;
-        span.className = "badge " + badgeClass;
+        span.textContent = statusTxt;
+        span.className = "badge " + badgeCls;
         tdStatus.appendChild(span);
       }
       tr.appendChild(tdStatus);
 
       const tdAcoes = document.createElement('td');
       tdAcoes.className = "row-actions";
-      const btnRemover = document.createElement('button');
-      btnRemover.textContent = "Remover";
-      btnRemover.addEventListener('click', () => {
-        removerItemPorId(item.id);
+      const btnRem = document.createElement('button');
+      btnRem.textContent = "Remover";
+      btnRem.addEventListener('click', () => {
+        itens = itens.filter(it => it.id !== item.id);
+        renderTabela();
       });
-      tdAcoes.appendChild(btnRemover);
+      tdAcoes.appendChild(btnRem);
       tr.appendChild(tdAcoes);
 
       tbodyItens.appendChild(tr);
@@ -667,227 +620,242 @@
 
   function atualizarResumo() {
     const totalItens = itens.length;
-    const totalQtd = itens.reduce((s, it) => s + (Number(it.qty) || 0), 0);
-    const totalBip = itens.reduce((s, it) => s + (Number(it.bipado) || 0), 0);
-    const totalRest = itens.reduce((s, it) => s + Math.max((Number(it.qty) || 0) - (Number(it.bipado) || 0), 0), 0);
-
+    const totalEstoque = itens.reduce((s, it) => s + (Number(it.estoqueAtual) || 0), 0);
+    const totalSaida = itens.reduce((s, it) => s + (Number(it.saida) || 0), 0);
     resumoDiv.innerHTML =
-      `<p><b>Total de variações (linhas):</b> ${totalItens}<br>` +
-      `<b>Total de peças (quantidade esperada):</b> ${totalQtd}<br>` +
-      `<b>Total de peças bipadas:</b> ${totalBip}<br>` +
-      `<b>Total de peças restantes:</b> ${totalRest}</p>`;
+      `<p><b>Variações cadastradas:</b> ${totalItens}<br>` +
+      `<b>Estoque atual (soma):</b> ${totalEstoque}<br>` +
+      `<b>Saída total (lidas em PDF):</b> ${totalSaida}</p>`;
   }
 
-  // =========================
-  // 6) Adicionar / atualizar / remover manualmente
-  // =========================
-  document.getElementById('btnAdicionar').addEventListener('click', function() {
-    const sku = document.getElementById('novoSku').value.trim();
-    const cor = document.getElementById('novaCor').value.trim();
-    const qtd = Number(document.getElementById('novaQtd').value) || 0;
-
-    if (!sku) {
-      alert("Informe o SKU base.");
-      return;
-    }
-
-    adicionarOuAtualizarItemBase(sku, cor, qtd, true);
-  });
-
-  function adicionarOuAtualizarItemBase(skuBase, corBase, qty, renderDepois) {
-    const skuNorm = normalizarTexto(skuBase);
-    const corNorm = normalizarTexto(corBase);
-
-    let itemExistente = itens.find(it =>
-      normalizarTexto(it.skuBase) === skuNorm &&
-      normalizarTexto(it.corBase) === corNorm
+  function adicionarOuAtualizarItem(sku, cor, estoqueInicial) {
+    const skuNorm = normalizarTexto(sku);
+    const corNorm = normalizarTexto(cor);
+    let item = itens.find(it =>
+      normalizarTexto(it.sku) === skuNorm &&
+      normalizarTexto(it.cor) === corNorm
     );
+    const skuEtiqueta = adaptarSkuParaEtiqueta(sku, cor);
+    const skuEtiquetaNorm = normalizarTexto(skuEtiqueta);
 
-    if (itemExistente) {
-      itemExistente.qty = qty;
+    if (item) {
+      const diferenca = (estoqueInicial - item.estoqueInicial);
+      item.estoqueInicial = estoqueInicial;
+      item.estoqueAtual += diferenca; // ajusta saldo mantendo saídas
+      item.skuEtiqueta = skuEtiqueta;
+      item.skuEtiquetaNorm = skuEtiquetaNorm;
     } else {
       itens.push({
         id: proximoId++,
-        skuBase: skuBase,
-        corBase: corBase,
-        skuEtiqueta: adaptarSkuParaPdf(skuBase, corBase),
-        qty: qty,
-        bipado: 0
+        sku: sku,
+        cor: cor,
+        estoqueInicial: estoqueInicial,
+        estoqueAtual: estoqueInicial,
+        saida: 0,
+        skuEtiqueta: skuEtiqueta,
+        skuEtiquetaNorm: skuEtiquetaNorm
       });
     }
-
-    if (renderDepois) {
-      renderTabela();
-      document.getElementById('novoSku').value = "";
-      document.getElementById('novaCor').value = "";
-      document.getElementById('novaQtd').value = 300;
-    }
-  }
-
-  function removerItemPorId(id) {
-    itens = itens.filter(it => it.id !== id);
     renderTabela();
   }
 
-  // =========================
-  // 7) Log de etiquetas
-  // =========================
-  function adicionarLogEntrada(tipo, mensagem) {
-    const div = document.createElement('div');
-    div.textContent = mensagem;
-    if (tipo === 'ok') div.className = 'log-entry-ok';
-    else if (tipo === 'dup') div.className = 'log-entry-dup';
-    else if (tipo === 'erro') div.className = 'log-entry-erro';
-    logEtiquetas.prepend(div); // mais recente em cima
-  }
-
-  // =========================
-  // 8) Processamento dos PDFs (pdf.js)
-  // =========================
-  const inputPDF = document.getElementById('inputPDF');
-  const btnProcessarPDFs = document.getElementById('btnProcessarPDFs');
-
-  btnProcessarPDFs.addEventListener('click', async function() {
-    const files = inputPDF.files;
-    if (!files || files.length === 0) {
-      alert("Selecione pelo menos um PDF de etiquetas.");
+  document.getElementById('btnAdicionar').addEventListener('click', () => {
+    const sku = document.getElementById('novoSku').value.trim();
+    const cor = document.getElementById('novaCor').value.trim();
+    const qtd = Number(document.getElementById('novaQtd').value) || 0;
+    if (!sku) {
+      alert("Informe o SKU.");
       return;
     }
+    adicionarOuAtualizarItem(sku, cor, qtd);
+    document.getElementById('novoSku').value = "";
+    document.getElementById('novaCor').value = "";
+    document.getElementById('novaQtd').value = 300;
+  });
 
+  // =========================
+  // 2) LEITURA DE PDF
+  // =========================
+
+  const pdfInput = document.getElementById('pdfInput');
+  const btnLerPDF = document.getElementById('btnLerPDF');
+
+  btnLerPDF.addEventListener('click', async () => {
+    const files = pdfInput.files;
+    if (!files || !files.length) {
+      alert("Selecione pelo menos um PDF.");
+      return;
+    }
     if (!window['pdfjsLib']) {
-      alert("pdf.js não está carregado. Verifique a conexão ou o script no topo do arquivo.");
+      alert("pdf.js não está carregado. Verifique se pdf.min.js está na mesma pasta.");
       return;
     }
 
-    infoPDF.textContent = "Processando PDFs...";
-
-    let totalPaginas = 0;
-    let totalEtiquetasOk = 0;
+    infoPDF.textContent = "Lendo PDFs, aguarde...";
+    logPDF.textContent = "";
+    let totalEtiquetas = 0;
+    let totalSaida = 0;
 
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
-      try {
-        const arrayBuffer = await file.arrayBuffer();
-        const pdf = await pdfjsLib.getDocument({data: arrayBuffer}).promise;
-        const numPages = pdf.numPages;
-        totalPaginas += numPages;
+      const arrayBuffer = await file.arrayBuffer();
+      const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+      let textoCompleto = "";
 
-        for (let pageNum = 1; pageNum <= numPages; pageNum++) {
-          const page = await pdf.getPage(pageNum);
-          const textContent = await page.getTextContent();
-          const texto = textContent.items.map(it => it.str).join('\n');
-
-          const resultado = processarTextoEtiqueta(texto);
-          if (resultado && resultado.length > 0) {
-            totalEtiquetasOk += resultado.length;
-          }
-        }
-      } catch (e) {
-        console.error(e);
-        adicionarLogEntrada('erro', `Erro ao processar PDF "${file.name}": ${e}`);
+      for (let p = 1; p <= pdf.numPages; p++) {
+        const page = await pdf.getPage(p);
+        const content = await page.getTextContent();
+        const strings = content.items.map(it => it.str);
+        textoCompleto += strings.join("\n") + "\n";
       }
+
+      // Processar texto do PDF
+      const resultado = processarTextoEtiquetas(textoCompleto, file.name);
+      totalEtiquetas += resultado.qtdEtiquetas;
+      totalSaida += resultado.qtdTotalSaida;
     }
 
-    renderTabela();
     infoPDF.textContent =
-      `Processamento concluído. PDFs: ${files.length}, páginas: ${totalPaginas}, etiquetas reconhecidas: ${totalEtiquetasOk}.`;
+      `Leitura concluída. Etiquetas lidas: ${totalEtiquetas}, peças abatidas: ${totalSaida}.`;
+    renderTabela();
   });
 
-  // Função que lê o texto completo de uma página de etiqueta
-  // e tenta achar:
-  //  - código de rastreio na linha com "#UP2F..."
-  //  - linha "1. ALGUM SKU AQUI *QTD"
-  function processarTextoEtiqueta(textoPagina) {
-    // 1) Código de rastreio
-    // exemplo: "SKU: 1; Total Items: 1; #UP2F42333526; Deadline:04/11/2025"
-    let codigoRastreio = null;
-    const regexRastreio = /#([A-Z0-9]+)/;
-    const matchRast = textoPagina.match(regexRastreio);
-    if (matchRast) {
-      codigoRastreio = matchRast[1];
-    }
+  function processarTextoEtiquetas(texto, nomeArquivo) {
+    // Estratégia:
+    // - percorrer linha a linha
+    // - guardar o último código de rastreio (#XXXXX) encontrado
+    // - quando achar linha com "1." e "*", extrair SKU + quantidade
+    //   Ex: "1. CS-30 *1"  -> SKU etiqueta: "CS-30", qtd: 1
+    const linhas = texto.split(/\r?\n/);
+    let ultimoRastreio = null;
+    let qtdEtiquetas = 0;
+    let qtdTotalSaida = 0;
 
-    // 2) Linhas de SKU: procuramos padrões "1. ALGUM TEXTO *NUM"
-    const linhas = textoPagina.split(/\r?\n/);
-    const resultados = [];
+    logPDF.textContent += `=== Arquivo: ${nomeArquivo} ===\n`;
 
-    const regexSkuLinha = /^\s*\d+\.\s*([^\*]+?)\s*\*(\d+)\s*$/;
+    for (let i = 0; i < linhas.length; i++) {
+      const linha = linhas[i].trim();
+      if (!linha) continue;
 
-    for (const linha of linhas) {
-      const m = linha.match(regexSkuLinha);
-      if (m) {
-        const skuEtiquetaLido = m[1].trim();   // exemplo: "CS-30" ou "D-Y03LARANJA (LARANJA)"
-        const qtd = parseInt(m[2], 10) || 0;
+      // Atualiza código de rastreio (linha com "#UP2F..." ou similar)
+      if (linha.includes("#")) {
+        const mR = linha.match(/#([A-Z0-9]+)/);
+        if (mR) {
+          ultimoRastreio = mR[1];
+        }
+      }
 
-        const status = registrarSaidaPorEtiqueta(skuEtiquetaLido, qtd, codigoRastreio);
-        resultados.push({ skuEtiqueta: skuEtiquetaLido, qtd, codigoRastreio, status });
+      // Linha da etiqueta com "1. ... *QTD"
+      if (linha.startsWith("1.") && linha.includes("*")) {
+        const m = linha.match(/1\.\s*(.+?)\s*\*([0-9]+)/);
+        if (!m) continue;
+
+        const skuEtiqueta = m[1].trim();      // texto entre 1. e *
+        const qtd = parseInt(m[2], 10) || 0;  // número depois do *
+
+        qtdEtiquetas++;
+        qtdTotalSaida += qtd;
+
+        const item = encontrarItemPorSkuEtiqueta(skuEtiqueta);
+
+        if (!item) {
+          logPDF.textContent +=
+            `Etiqueta: "${skuEtiqueta}" (qtd: ${qtd}) - NÃO ENCONTRADO no estoque. Rastreio: ${ultimoRastreio || "-"}\n`;
+          beep('erro');
+        } else {
+          item.saida += qtd;
+          item.estoqueAtual -= qtd;
+          logPDF.textContent +=
+            `Etiqueta: "${skuEtiqueta}" (qtd: ${qtd}) - OK. Rastreio: ${ultimoRastreio || "-"}\n`;
+          beep('ok');
+        }
       }
     }
 
-    return resultados;
+    logPDF.textContent += `\n`;
+    return { qtdEtiquetas, qtdTotalSaida };
   }
 
   // =========================
-  // 9) Registrar saída de estoque a partir da etiqueta
+  // 3) QR-CODE (DUPLICIDADE)
   // =========================
-  function registrarSaidaPorEtiqueta(skuEtiquetaLido, qtd, codigoRastreio) {
-    const skuLabelNorm = normalizarTexto(skuEtiquetaLido);
 
-    // Checar duplicidade de código de rastreio (se existir)
-    let duplicado = false;
-    if (codigoRastreio) {
-      if (codigosRastreioLidos.has(codigoRastreio)) {
-        duplicado = true;
-      } else {
-        codigosRastreioLidos.add(codigoRastreio);
+  let html5QrCode = null;
+  let podeLerQR = true;
+  const codigosLidos = new Set();
+  const statusQR = document.getElementById('statusQR');
+  const logQR = document.getElementById('logQR');
+  const btnIniciarQR = document.getElementById('btnIniciarQR');
+  const btnPararQR = document.getElementById('btnPararQR');
+
+  btnIniciarQR.addEventListener('click', async () => {
+    if (!window['Html5Qrcode']) {
+      alert("html5-qrcode não está carregado. Verifique se html5-qrcode.min.js está na mesma pasta.");
+      return;
+    }
+    if (html5QrCode) {
+      statusQR.textContent = "Câmera já ativa.";
+      return;
+    }
+
+    html5QrCode = new Html5Qrcode("reader");
+    statusQR.textContent = "Abrindo câmera...";
+
+    const config = { fps: 10, qrbox: { width: 220, height: 220 } };
+    podeLerQR = true;
+
+    html5QrCode.start(
+      { facingMode: "environment" },
+      config,
+      (decodedText, decodedResult) => {
+        if (!podeLerQR) return;
+        podeLerQR = false;
+
+        const codigo = decodedText.trim();
+        const jaLido = codigosLidos.has(codigo);
+
+        if (!jaLido) {
+          codigosLidos.add(codigo);
+          logQR.textContent += `NOVO: ${codigo}\n`;
+          statusQR.textContent = `QR lido: ${codigo} (novo)`;
+          beep('ok');
+        } else {
+          logQR.textContent += `DUPLICADO: ${codigo}\n`;
+          statusQR.textContent = `QR lido: ${codigo} (DUPLICADO)`;
+          beep('dup');
+        }
+
+        // Libera próxima leitura após 5 segundos
+        setTimeout(() => {
+          podeLerQR = true;
+        }, 5000);
+      },
+      (errorMessage) => {
+        // erros contínuos de leitura (normal), então não mostramos nada
       }
+    ).then(() => {
+      statusQR.textContent = "Câmera ativa. Aponte para o QR-Code.";
+    }).catch(err => {
+      console.error(err);
+      statusQR.textContent = "Não foi possível iniciar a câmera: " + err;
+      html5QrCode = null;
+    });
+  });
+
+  btnPararQR.addEventListener('click', async () => {
+    if (html5QrCode) {
+      try {
+        await html5QrCode.stop();
+        await html5QrCode.clear();
+      } catch (e) {
+        console.error(e);
+      }
+      html5QrCode = null;
+      statusQR.textContent = "Câmera parada.";
     }
+  });
 
-    // Tenta encontrar o item pelo SKU de etiqueta
-    let item = itens.find(it => normalizarTexto(it.skuEtiqueta) === skuLabelNorm);
-
-    if (!item) {
-      // SKU não encontrado
-      const msg = `SKU etiqueta NÃO encontrado: "${skuEtiquetaLido}" (qtd=${qtd})` +
-        (codigoRastreio ? ` | rastreio: ${codigoRastreio}` : "");
-      adicionarLogEntrada('erro', msg);
-      tocarBeepErro();
-      return 'nao_encontrado';
-    }
-
-    if (duplicado) {
-      const msg = `DUPLICADO: rastreio ${codigoRastreio} | SKU etiqueta: "${skuEtiquetaLido}" | qtd=${qtd}`;
-      adicionarLogEntrada('dup', msg);
-      tocarBeepErro();
-      return 'duplicado';
-    }
-
-    // Se não for duplicado, soma ao bipado
-    item.bipado = (item.bipado || 0) + qtd;
-
-    const esperado = Number(item.qty) || 0;
-    const bip = item.bipado;
-
-    let msgStatus = "";
-    if (bip > esperado && esperado > 0) {
-      msgStatus = `ALERTA EXCESSO: "${item.skuEtiqueta}" bipado ${bip}/${esperado}` +
-        (codigoRastreio ? ` | rastreio: ${codigoRastreio}` : "");
-    } else if (bip === esperado && esperado > 0) {
-      msgStatus = `OK COMPLETO: "${item.skuEtiqueta}" atingiu ${bip}/${esperado}` +
-        (codigoRastreio ? ` | rastreio: ${codigoRastreio}` : "");
-    } else {
-      msgStatus = `PENDENTE: "${item.skuEtiqueta}" bipado ${bip}/${esperado}` +
-        (codigoRastreio ? ` | rastreio: ${codigoRastreio}` : "");
-    }
-
-    adicionarLogEntrada('ok', msgStatus);
-    tocarBeepSucesso();
-    return 'ok';
-  }
-
-  // =========================
-  // 10) Inicialização geral
-  // =========================
+  // Inicializa
   inicializarItens();
 </script>
 </body>
